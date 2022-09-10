@@ -1,7 +1,9 @@
 ﻿<?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://xamarin.com/schemas/2014/forms"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
-             x:Class="WhereToFly.App.Core.Views.CurrentPositionDetailsPage">
+             x:Class="WhereToFly.App.Core.Views.CurrentPositionDetailsPage"
+             Title="Detail infos"
+             BackgroundColor="{DynamicResource PageBackgroundColor}">
     <ContentPage.Content>
 
         <ScrollView Orientation="Vertical">
@@ -12,14 +14,13 @@
                 AlignItems="Start"
                 AlignContent="Start"
                 JustifyContent="Start"
-                Wrap="Wrap"
-                BackgroundColor="White">
+                Wrap="Wrap">
 
                 <!-- Latitude / Longitude -->
-                <Grid WidthRequest="300" HeightRequest="100"
+                <Grid WidthRequest="348" HeightRequest="100"
                       Margin="16,16,0,0"
                       Padding="4"
-                      BackgroundColor="#efefef">
+                      BackgroundColor="{DynamicResource ListViewItemBackgroundColor}">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
@@ -42,7 +43,7 @@
                              Orientation="Vertical"
                              Margin="16,16,0,0"
                              Padding="4"
-                             BackgroundColor="#efefef">
+                             BackgroundColor="{DynamicResource ListViewItemBackgroundColor}">
                     <Label Text="Altitude [m]" />
                     <Label Text="{Binding Altitude, Mode=OneWay}" FontSize="32" />
                 </StackLayout>
@@ -52,7 +53,7 @@
                              Orientation="Vertical"
                              Margin="16,16,0,0"
                              Padding="4"
-                             BackgroundColor="#efefef">
+                             BackgroundColor="{DynamicResource ListViewItemBackgroundColor}">
                     <Label Text="Accuracy [m]" />
                     <Label Text="{Binding Accuracy, Mode=OneWay}" FontSize="32"
                            TextColor="{Binding PositionAccuracyColor, Mode=OneWay}" />
@@ -63,7 +64,7 @@
                              Orientation="Vertical"
                              Margin="16,16,0,0"
                              Padding="4"
-                             BackgroundColor="#efefef">
+                             BackgroundColor="{DynamicResource ListViewItemBackgroundColor}">
                     <Label Text="Last position fix" />
                     <Label Text="{Binding LastPositionFix, Mode=OneWay}" FontSize="24" />
                 </StackLayout>
@@ -73,20 +74,75 @@
                              Orientation="Vertical"
                              Margin="16,16,0,0"
                              Padding="4"
-                             BackgroundColor="#efefef">
+                             BackgroundColor="{DynamicResource ListViewItemBackgroundColor}">
                     <Label Text="Speed [km/h]" />
                     <Label Text="{Binding SpeedInKmh, Mode=OneWay}" FontSize="32" />
                 </StackLayout>
 
-                <!-- Heading -->
+                <!-- Magnetic-north Heading -->
                 <StackLayout WidthRequest="100" HeightRequest="100"
                              Orientation="Vertical"
                              Margin="16,16,0,0"
                              Padding="4"
-                             IsVisible="{Binding IsHeadingAvail, Mode=OneWay}"
-                             BackgroundColor="#efefef">
-                    <Label Text="Heading [°]" />
-                    <Label Text="{Binding HeadingInDegrees, Mode=OneWay}" FontSize="32" />
+                             IsVisible="{Binding IsMagneticNorthHeadingAvail, Mode=OneWay}"
+                             BackgroundColor="{DynamicResource ListViewItemBackgroundColor}">
+                    <Label Text="Magnetic Heading [°]" />
+                    <Label Text="{Binding MagneticNorthHeadingInDegrees, Mode=OneWay}" FontSize="32" />
+                </StackLayout>
+
+                <!-- True-north Heading -->
+                <StackLayout WidthRequest="100" HeightRequest="100"
+                             Orientation="Vertical"
+                             Margin="16,16,0,0"
+                             Padding="4"
+                             IsVisible="{Binding IsTrueNorthHeadingAvail, Mode=OneWay}"
+                             BackgroundColor="{DynamicResource ListViewItemBackgroundColor}">
+                    <Label Text="True North Heading [°]" />
+                    <Label Text="{Binding TrueNorthHeadingInDegrees, Mode=OneWay}" FontSize="32" />
+                </StackLayout>
+
+                <!-- Sunrise -->
+                <StackLayout WidthRequest="100" HeightRequest="100"
+                             Orientation="Vertical"
+                             Margin="16,16,0,0"
+                             Padding="4"
+                             IsVisible="{Binding IsSunriseSunsetAvail, Mode=OneWay}"
+                             BackgroundColor="{DynamicResource ListViewItemBackgroundColor}">
+                    <Label Text="Sunrise" />
+                    <Label Text="{Binding SunriseTime, Mode=OneWay}" FontSize="24" />
+                </StackLayout>
+
+                <!-- Sunset -->
+                <StackLayout WidthRequest="100" HeightRequest="100"
+                             Orientation="Vertical"
+                             Margin="16,16,0,0"
+                             Padding="4"
+                             IsVisible="{Binding IsSunriseSunsetAvail, Mode=OneWay}"
+                             BackgroundColor="{DynamicResource ListViewItemBackgroundColor}">
+                    <Label Text="Sunset" />
+                    <Label Text="{Binding SunsetTime, Mode=OneWay}" FontSize="24" />
+                </StackLayout>
+
+                <!-- Sunrise angle -->
+                <StackLayout WidthRequest="100" HeightRequest="100"
+                             Orientation="Vertical"
+                             Margin="16,16,0,0"
+                             Padding="4"
+                             IsVisible="{Binding IsSunriseDirectionAvail, Mode=OneWay}"
+                             BackgroundColor="{DynamicResource ListViewItemBackgroundColor}">
+                    <Label Text="Sunrise angle [°]" />
+                    <Label Text="{Binding SunriseDirectionText, Mode=OneWay}" FontSize="24" />
+                </StackLayout>
+
+                <!-- Sunset angle -->
+                <StackLayout WidthRequest="100" HeightRequest="100"
+                             Orientation="Vertical"
+                             Margin="16,16,0,0"
+                             Padding="4"
+                             IsVisible="{Binding IsSunsetDirectionAvail, Mode=OneWay}"
+                             BackgroundColor="{DynamicResource ListViewItemBackgroundColor}">
+                    <Label Text="Sunrise angle [°]" />
+                    <Label Text="{Binding SunsetDirectionText, Mode=OneWay}" FontSize="24" />
                 </StackLayout>
 
             </FlexLayout>

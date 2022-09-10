@@ -1,28 +1,16 @@
 ﻿using Rg.Plugins.Popup.Extensions;
-using Rg.Plugins.Popup.Pages;
 using System;
-using System.Diagnostics;
-using System.Linq;
 using System.Threading.Tasks;
 using WhereToFly.App.Core.ViewModels;
-using WhereToFly.App.Geo;
-using WhereToFly.App.Model;
-using Xamarin.Forms;
-using Xamarin.Forms.Xaml;
+using WhereToFly.Geo.Model;
 
 namespace WhereToFly.App.Core.Views
 {
     /// <summary>
     /// Popup page for adding a live waypoint and edit its properties.
     /// </summary>
-    [XamlCompilation(XamlCompilationOptions.Compile)]
-    public partial class AddLiveWaypointPopupPage : PopupPage
+    public partial class AddLiveWaypointPopupPage : BasePopupPage
     {
-        /// <summary>
-        /// View model for this popup page
-        /// </summary>
-        private readonly AddLiveWaypointPopupViewModel viewModel;
-
         /// <summary>
         /// Task completion source to report back if live waypoint should be added
         /// </summary>
@@ -38,7 +26,7 @@ namespace WhereToFly.App.Core.Views
 
             this.InitializeComponent();
 
-            this.BindingContext = this.viewModel = new AddLiveWaypointPopupViewModel(liveWaypoint);
+            this.BindingContext = new AddLiveWaypointPopupViewModel(liveWaypoint);
         }
 
         /// <summary>
@@ -51,7 +39,7 @@ namespace WhereToFly.App.Core.Views
         {
             var popupPage = new AddLiveWaypointPopupPage(liveWaypoint)
             {
-                tcs = new TaskCompletionSource<bool>()
+                tcs = new TaskCompletionSource<bool>(),
             };
 
             await popupPage.Navigation.PushPopupAsync(popupPage);

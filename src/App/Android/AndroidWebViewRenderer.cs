@@ -1,6 +1,4 @@
 using Android.Content;
-using System;
-using WhereToFly.App.Core;
 using Xamarin.Forms;
 using Xamarin.Forms.Platform.Android;
 
@@ -35,8 +33,6 @@ namespace WhereToFly.App.Android
                 e.NewElement != null)
             {
                 this.SetupWebViewSettings();
-
-                MessagingCenter.Subscribe<Core.App>(this, Constants.MessageWebViewClearCache, this.ClearCache);
             }
 
             if (e.OldElement != null)
@@ -78,35 +74,7 @@ namespace WhereToFly.App.Android
             this.Control.Settings.MixedContentMode = global::Android.Webkit.MixedContentHandling.CompatibilityMode;
 
             // set up cache
-            var platform = DependencyService.Get<IPlatform>();
-
-            this.Control.Settings.SetAppCacheMaxSize(256 * 1024 * 1024); // 256 MB
-            this.Control.Settings.SetAppCachePath(platform.CacheDataFolder);
-            this.Control.Settings.SetAppCacheEnabled(true);
             this.Control.Settings.CacheMode = global::Android.Webkit.CacheModes.Normal;
-        }
-
-        /// <summary>
-        /// Clears cache of the web view control
-        /// </summary>
-        /// <param name="app">app object; unused</param>
-        private void ClearCache(Core.App app)
-        {
-            if (this.Control == null)
-            {
-                return;
-            }
-
-            try
-            {
-                this.Control.ClearHistory();
-                this.Control.ClearFormData();
-                this.Control.ClearCache(true);
-            }
-            catch (Exception)
-            {
-                // ignore exception when clearing cache
-            }
         }
     }
 }

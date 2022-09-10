@@ -1,6 +1,8 @@
 ﻿using Android.Content;
+using Android.Content.PM;
 using Android.Graphics;
 using Android.Graphics.Drawables;
+using System;
 using System.Diagnostics;
 using System.IO;
 using WhereToFly.App.Core;
@@ -16,6 +18,31 @@ namespace WhereToFly.App.Android
     public class AndroidAppManager : IAppManager
     {
         /// <summary>
+        /// Android package manager
+        /// </summary>
+        private static PackageManager PackageManager
+            => global::Android.App.Application.Context.PackageManager;
+
+        /// <summary>
+        /// Determines if the app with given package name is available
+        /// </summary>
+        /// <param name="packageName">package name of app to check</param>
+        /// <returns>true when available, or false when not</returns>
+        public bool IsAvailable(string packageName)
+        {
+            try
+            {
+                var intent = PackageManager.GetLaunchIntentForPackage(packageName);
+                return intent != null;
+            }
+            catch (ActivityNotFoundException ex)
+            {
+                Debug.WriteLine($"activity for package {packageName} not found: {ex}");
+                return false;
+            }
+        }
+
+        /// <summary>
         /// Starts app's launch intent for app with given package name. See:
         /// https://stackoverflow.com/questions/2780102/open-another-application-from-your-own-intent
         /// </summary>
@@ -23,25 +50,22 @@ namespace WhereToFly.App.Android
         /// <returns>true when start was successful, false when not</returns>
         public bool OpenApp(string packageName)
         {
-            var context = AndroidPlatform.CurrentContext;
-
-            var pm = context.PackageManager;
             try
             {
-                var intent = pm.GetLaunchIntentForPackage(packageName);
+                var intent = PackageManager.GetLaunchIntentForPackage(packageName);
 
                 if (intent == null)
                 {
                     return false;
                 }
 
-                context.StartActivity(intent);
+                Xamarin.Essentials.Platform.CurrentActivity.StartActivity(intent);
 
                 return true;
             }
             catch (ActivityNotFoundException ex)
             {
-                Debug.WriteLine($"activity for package {packageName} not found: {ex.ToString()}");
+                Debug.WriteLine($"activity for package {packageName} not found: {ex}");
                 return false;
             }
         }
@@ -64,10 +88,16 @@ namespace WhereToFly.App.Android
         /// <returns>stream containing a PNG image, or null when no bitmap could be loaded</returns>
         private MemoryStream LoadAppIcon(string packageName)
         {
-            var context = AndroidPlatform.CurrentContext;
+            Drawable drawable = null;
+            try
+            {
+                drawable = PackageManager.GetApplicationIcon(packageName);
+            }
+            catch (Exception)
+            {
+                // ignore exception
+            }
 
-            var pm = context.PackageManager;
-            var drawable = pm.GetApplicationIcon(packageName);
             if (drawable == null)
             {
                 return null;
@@ -111,7 +141,7 @@ namespace WhereToFly.App.Android
                 bitmap = Bitmap.CreateBitmap(drawable.IntrinsicWidth, drawable.IntrinsicHeight, Bitmap.Config.Argb8888);
             }
 
-            Canvas canvas = new Canvas(bitmap);
+            var canvas = new Canvas(bitmap);
             drawable.SetBounds(0, 0, canvas.Width, canvas.Height);
             drawable.Draw(canvas);
 

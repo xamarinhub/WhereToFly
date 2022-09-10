@@ -1,9 +1,11 @@
 ﻿using System;
-using System.Threading;
+using System.Linq;
 using System.Threading.Tasks;
+using WhereToFly.App.Core.Logic;
 using WhereToFly.App.Core.Services;
 using WhereToFly.App.Core.Views;
-using WhereToFly.App.Model;
+using WhereToFly.Geo;
+using WhereToFly.Geo.Model;
 using WhereToFly.Shared.Model;
 using Xamarin.Forms;
 
@@ -19,7 +21,7 @@ namespace WhereToFly.App.Core
         /// </summary>
         /// <param name="uri">app resource URI to open</param>
         /// <returns>task to wait on</returns>
-        public static async Task Open(string uri)
+        public static async Task OpenAsync(string uri)
         {
             try
             {
@@ -35,29 +37,14 @@ namespace WhereToFly.App.Core
                     return;
                 }
 
-                var rawUri = new Uri(uri);
-                string waypointName = "Live Waypoint";
-                if (!string.IsNullOrEmpty(rawUri.Fragment))
+                if (!appResourceUri.IsTrackResourceType)
                 {
-                    waypointName =
-                        System.Net.WebUtility.UrlDecode(rawUri.Fragment.TrimStart('#'));
+                    await AddLiveWaypoint(uri, appResourceUri);
                 }
-
-                var liveWaypoint = await GetLiveWaypointLocation(waypointName, appResourceUri);
-
-                if (!await ShowAddLiveWaypointDialog(liveWaypoint))
+                else
                 {
-                    return;
+                    await AddLiveTrack(uri, appResourceUri);
                 }
-
-                await StoreLiveWaypoint(liveWaypoint);
-
-                App.ShowToast("Live waypoint was loaded.");
-
-                await NavigationService.Instance.NavigateAsync(Constants.PageKeyMapPage, animated: true);
-
-                App.ZoomToLocation(liveWaypoint.MapLocation);
-                App.UpdateMapLocationsList();
             }
             catch (Exception ex)
             {
@@ -68,6 +55,42 @@ namespace WhereToFly.App.Core
                     "Error while opening weblink: " + ex.Message,
                     "OK");
             }
+        }
+
+        /// <summary>
+        /// Adds a new live waypoint resource URI
+        /// </summary>
+        /// <param name="uri">URI as string</param>
+        /// <param name="appResourceUri">app resource URI</param>
+        /// <returns>task to wait on</returns>
+        private static async Task AddLiveWaypoint(string uri, AppResourceUri appResourceUri)
+        {
+            var rawUri = new Uri(uri);
+            string waypointName = "Live Waypoint";
+            if (!string.IsNullOrEmpty(rawUri.Fragment))
+            {
+                waypointName =
+                    System.Net.WebUtility.UrlDecode(rawUri.Fragment.TrimStart('#'));
+            }
+
+            Location liveWaypoint = await GetLiveWaypointLocation(waypointName, appResourceUri);
+
+            if (!await ShowAddLiveWaypointDialog(liveWaypoint))
+            {
+                return;
+            }
+
+            await StoreLiveWaypoint(liveWaypoint);
+
+            App.ShowToast("Live waypoint was loaded.");
+
+            await NavigationService.GoToMap();
+
+            await App.UpdateLastShownPositionAsync(liveWaypoint.MapLocation);
+
+            App.MapView.AddLocation(liveWaypoint);
+
+            App.MapView.ZoomToLocation(liveWaypoint.MapLocation);
         }
 
         /// <summary>
@@ -91,7 +114,7 @@ namespace WhereToFly.App.Core
                 MapLocation = mapPoint,
                 Description = result.Data.Description.Replace("\n", "<br/>"),
                 Type = LocationType.LiveWaypoint,
-                InternetLink = appResourceUri.ToString()
+                InternetLink = appResourceUri.ToString(),
             };
         }
 
@@ -113,18 +136,107 @@ namespace WhereToFly.App.Core
         private static async Task StoreLiveWaypoint(Location liveWaypoint)
         {
             var dataService = DependencyService.Get<IDataService>();
-
-            var locationList = await dataService.GetLocationListAsync(CancellationToken.None);
+            var locationDataService = dataService.GetLocationDataService();
 
             // remove when the live waypoint was already in the list
-            locationList.RemoveAll(location => location.Id == liveWaypoint.Id);
+            await locationDataService.Remove(liveWaypoint.Id);
+            await locationDataService.Add(liveWaypoint);
 
-            locationList.Add(liveWaypoint);
+            var liveWaypointRefreshService = DependencyService.Get<LiveDataRefreshService>();
+            liveWaypointRefreshService.AddLiveWaypoint(liveWaypoint);
+        }
 
-            await dataService.StoreLocationListAsync(locationList);
+        /// <summary>
+        /// Adds a new live track resource URI
+        /// </summary>
+        /// <param name="uri">URI as string</param>
+        /// <param name="appResourceUri">app resource URI</param>
+        /// <returns>task to wait on</returns>
+        private static async Task AddLiveTrack(string uri, AppResourceUri appResourceUri)
+        {
+            var rawUri = new Uri(uri);
+            string trackName = "Live Track";
+            if (!string.IsNullOrEmpty(rawUri.Fragment))
+            {
+                trackName =
+                    System.Net.WebUtility.UrlDecode(rawUri.Fragment.TrimStart('#'));
+            }
 
-            var liveWaypointRefreshService = DependencyService.Get<LiveWaypointRefreshService>();
-            liveWaypointRefreshService.UpdateLiveWaypointList(locationList);
+            Track liveTrack = await GetLiveTrack(trackName, appResourceUri);
+
+            await StoreLiveTrack(liveTrack);
+
+            App.ShowToast("Live track was loaded.");
+
+            await NavigationService.GoToMap();
+
+            App.MapView.AddTrack(liveTrack);
+
+            App.MapView.ZoomToTrack(liveTrack);
+        }
+
+        /// <summary>
+        /// Retrieves current live track points
+        /// </summary>
+        /// <param name="trackName">track name to use</param>
+        /// <param name="appResourceUri">app resource uri to use</param>
+        /// <returns>loaded live track</returns>
+        private static async Task<Track> GetLiveTrack(string trackName, AppResourceUri appResourceUri)
+        {
+            var dataService = DependencyService.Get<IDataService>();
+
+            LiveTrackQueryResult result = await dataService.GetLiveTrackDataAsync(
+                appResourceUri.ToString(),
+                null);
+
+            var track = new Track
+            {
+                Id = result.Data.ID,
+                Name = trackName ?? result.Data.Name,
+                Description = HtmlConverter.Sanitize(result.Data.Description),
+                IsFlightTrack = true,
+                IsLiveTrack = true,
+                Color = "ff8000",
+                TrackPoints = result.Data.TrackPoints.Select(
+                    trackPoint => new TrackPoint(
+                        latitude: trackPoint.Latitude,
+                        longitude: trackPoint.Longitude,
+                        altitude: trackPoint.Altitude,
+                        null)
+                    {
+                        Time = result.Data.TrackStart.AddSeconds(trackPoint.Offset),
+                    }).ToList(),
+            };
+
+            track.CalculateStatistics();
+
+            return track;
+        }
+
+        /// <summary>
+        /// Stores live track in track list
+        /// </summary>
+        /// <param name="liveTrack">live track to store in track list</param>
+        /// <returns>task to wait on</returns>
+        private static async Task StoreLiveTrack(Track liveTrack)
+        {
+            var dataService = DependencyService.Get<IDataService>();
+            var trackDataService = dataService.GetTrackDataService();
+
+            // remove when the live track was already in the list
+            try
+            {
+                await trackDataService.Remove(liveTrack.Id);
+            }
+            catch (Exception)
+            {
+                // ignore errors when removing
+            }
+
+            await trackDataService.Add(liveTrack);
+
+            var liveDataRefreshService = DependencyService.Get<LiveDataRefreshService>();
+            liveDataRefreshService.AddLiveTrack(liveTrack);
         }
     }
 }

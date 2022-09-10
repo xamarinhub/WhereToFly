@@ -1,5 +1,6 @@
 ﻿using System.Threading.Tasks;
-using WhereToFly.App.Model;
+using System.Windows.Input;
+using WhereToFly.App.Core.Models;
 using Xamarin.Forms;
 
 namespace WhereToFly.App.Core.ViewModels
@@ -9,6 +10,11 @@ namespace WhereToFly.App.Core.ViewModels
     /// </summary>
     public class WeatherIconListEntryViewModel : ViewModelBase
     {
+        /// <summary>
+        /// Parent view model
+        /// </summary>
+        private readonly SelectWeatherIconViewModel parentViewModel;
+
         #region Binding properties
         /// <summary>
         /// Title of weather icon
@@ -19,6 +25,11 @@ namespace WhereToFly.App.Core.ViewModels
         /// Image source for weather icon
         /// </summary>
         public ImageSource Icon { get; private set; }
+
+        /// <summary>
+        /// The weather icon's group text
+        /// </summary>
+        public string Group => this.IconDescription.Group;
         #endregion
 
         /// <summary>
@@ -27,12 +38,25 @@ namespace WhereToFly.App.Core.ViewModels
         public WeatherIconDescription IconDescription { get; private set; }
 
         /// <summary>
+        /// Command to execute when an item in the weather icon list has been tapped
+        /// </summary>
+        public ICommand ItemTappedCommand { get; }
+
+        /// <summary>
         /// Creates a new weather icon view model from weather icon description
         /// </summary>
+        /// <param name="parentViewModel">parent view model</param>
         /// <param name="iconDescription">weather icon description to use</param>
-        public WeatherIconListEntryViewModel(WeatherIconDescription iconDescription)
+        public WeatherIconListEntryViewModel(SelectWeatherIconViewModel parentViewModel, WeatherIconDescription iconDescription)
         {
+            this.parentViewModel = parentViewModel;
+
             this.IconDescription = iconDescription;
+
+            this.ItemTappedCommand = new Command(() =>
+            {
+                this.parentViewModel.ItemTappedCommand.Execute(this);
+            });
 
             this.SetupBindings();
         }
@@ -44,9 +68,7 @@ namespace WhereToFly.App.Core.ViewModels
         {
             Task.Run(async () =>
             {
-                var imageCache = DependencyService.Get<WeatherImageCache>();
-
-                this.Icon = await imageCache.GetImageAsync(this.IconDescription);
+                this.Icon = await WeatherImageCache.GetImageAsync(this.IconDescription);
 
                 this.OnPropertyChanged(nameof(this.Icon));
             });

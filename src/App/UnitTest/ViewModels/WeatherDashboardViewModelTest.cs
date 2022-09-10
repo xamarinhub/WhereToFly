@@ -2,7 +2,7 @@
 using System;
 using System.Linq;
 using WhereToFly.App.Core;
-using WhereToFly.App.Core.Services;
+using WhereToFly.App.Core.Services.SqliteDatabase;
 using WhereToFly.App.Core.ViewModels;
 using Xamarin.Forms;
 
@@ -21,7 +21,7 @@ namespace WhereToFly.App.UnitTest.ViewModels
         public void SetUp()
         {
             Xamarin.Forms.Mocks.MockForms.Init();
-            DependencyService.Register<IDataService, DataService>();
+            DependencyService.Register<IDataService, SqliteDatabaseDataService>();
             DependencyService.Register<IPlatform, UnitTestPlatform>();
         }
 
@@ -36,12 +36,12 @@ namespace WhereToFly.App.UnitTest.ViewModels
 
             Assert.IsTrue(
                 viewModel.WaitForPropertyChange(
-                    nameof(viewModel.WeatherIconDescriptionList),
+                    nameof(viewModel.WeatherDashboardItems),
                     TimeSpan.FromSeconds(10)),
                 "waiting for property change must succeed");
 
             // check
-            Assert.IsTrue(viewModel.WeatherIconDescriptionList.Any(), "weather icon list must contain placeholder icon");
+            Assert.IsTrue(viewModel.WeatherDashboardItems.Any(), "weather icon list must contain placeholder icon");
         }
     }
 }

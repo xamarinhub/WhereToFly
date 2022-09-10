@@ -3,6 +3,8 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading.Tasks;
+using WhereToFly.Geo;
+using WhereToFly.Geo.Model;
 using WhereToFly.Shared.Model;
 using WhereToFly.WebApi.Logic.Services;
 
@@ -19,32 +21,36 @@ namespace WhereToFly.WebApi.Logic
         private readonly ILogger<LiveWaypointCacheManager> logger;
 
         /// <summary>
-        /// Cacle for live waypoint data, keyed by ID
+        /// Cache for live waypoint data, keyed by ID
         /// </summary>
-        private readonly Dictionary<string, LiveWaypointData> liveWaypointCache = new Dictionary<string, LiveWaypointData>();
+        private readonly Dictionary<string, LiveWaypointData> liveWaypointCache = new();
 
         /// <summary>
         /// Lock object for cache and queue
         /// </summary>
-        private readonly object lockCacheAndQueue = new object();
+        private readonly object lockCacheAndQueue = new();
 
         /// <summary>
         /// Data service for querying Find Me SPOT service
         /// </summary>
-        private readonly FindMeSpotTrackerDataService findMeSpotTrackerService = new FindMeSpotTrackerDataService();
+        private readonly FindMeSpotTrackerDataService findMeSpotTrackerService = new();
 
         /// <summary>
         /// Data service for querying Garmin inReach services
         /// </summary>
-        private readonly GarminInreachDataService garminInreachService = new GarminInreachDataService();
+        private readonly GarminInreachDataService garminInreachService;
 
         /// <summary>
         /// Creates a new live waypoint cache manager object
         /// </summary>
         /// <param name="logger">logger instance to use</param>
-        public LiveWaypointCacheManager(ILogger<LiveWaypointCacheManager> logger)
+        /// <param name="garminInreachService">Garmin inReach service</param>
+        public LiveWaypointCacheManager(
+            ILogger<LiveWaypointCacheManager> logger,
+            GarminInreachDataService garminInreachService)
         {
             this.logger = logger;
+            this.garminInreachService = garminInreachService;
         }
 
         /// <summary>
@@ -123,7 +129,7 @@ namespace WhereToFly.WebApi.Logic
             return new LiveWaypointQueryResult
             {
                 Data = cachedData,
-                NextRequestDate = this.GetNextRequestDate(uri)
+                NextRequestDate = this.GetNextRequestDate(uri),
             };
         }
 
@@ -212,7 +218,7 @@ namespace WhereToFly.WebApi.Logic
             return new LiveWaypointQueryResult
             {
                 Data = liveWaypointData,
-                NextRequestDate = this.findMeSpotTrackerService.GetNextRequestDate(uri)
+                NextRequestDate = this.findMeSpotTrackerService.GetNextRequestDate(uri),
             };
         }
 
@@ -230,7 +236,7 @@ namespace WhereToFly.WebApi.Logic
             return new LiveWaypointQueryResult
             {
                 Data = liveWaypointData,
-                NextRequestDate = this.garminInreachService.GetNextRequestDate(mapShareIdentifier)
+                NextRequestDate = this.garminInreachService.GetNextRequestDate(mapShareIdentifier),
             };
         }
 
@@ -241,14 +247,42 @@ namespace WhereToFly.WebApi.Logic
         /// <returns>live waypoint query result</returns>
         private Task<LiveWaypointQueryResult> GetTestPosResult(AppResourceUri uri)
         {
+            MapPoint mapPoint;
+            switch (uri.Data.ToLowerInvariant())
+            {
+                case "crossingthealps2019":
+                    var point1 = new MapPoint(47.754076, 12.352277, 0.0); // Kampenwand
+                    var point2 = new MapPoint(46.017779, 11.900711, 0.0); // Feltre
+
+                    // every 10 minutes, interpolate between two points, in interval [-0.5; 1.5[
+                    double t = (((DateTimeOffset.Now.TimeOfDay.TotalMinutes % 10.0) / 10.0) * 2) - 0.5;
+
+                    mapPoint = new MapPoint(
+                        Shared.Base.Math.Interpolate(point1.Latitude, point2.Latitude, t),
+                        Shared.Base.Math.Interpolate(point1.Longitude, point2.Longitude, t),
+                        0.0);
+
+                    break;
+
+                case "data":
+                case "spitzingsee":
+                    mapPoint = new MapPoint(47.664601, 11.885455, 0.0);
+
+                    double timeAngleInDegrees = (DateTimeOffset.Now.TimeOfDay.TotalMinutes * 6.0) % 360;
+                    double timeAngle = timeAngleInDegrees / 180.0 * Math.PI;
+                    mapPoint.Latitude += 0.025 * Math.Sin(timeAngle);
+                    mapPoint.Longitude -= 0.025 * Math.Cos(timeAngle);
+                    break;
+
+                case "livetracking":
+                    return Task.FromResult(
+                        TestLiveTrackService.GetPositionQueryResult(uri.ToString()));
+
+                default:
+                    throw new ArgumentException("invalid TestPos uri data");
+            }
+
             DateTimeOffset nextRequestDate = DateTimeOffset.Now + TimeSpan.FromMinutes(1.0);
-
-            var mapPoint = new MapPoint(47.664601, 11.885455, 0.0);
-
-            double timeAngleInDegrees = (DateTimeOffset.Now.TimeOfDay.TotalMinutes * 6.0) % 360;
-            double timeAngle = timeAngleInDegrees / 180.0 * Math.PI;
-            mapPoint.Latitude += 0.025 * Math.Sin(timeAngle);
-            mapPoint.Longitude -= 0.025 * Math.Cos(timeAngle);
 
             return Task.FromResult(
                 new LiveWaypointQueryResult
@@ -262,11 +296,43 @@ namespace WhereToFly.WebApi.Logic
                         Altitude = mapPoint.Altitude.Value,
                         Name = "Live waypoint test position",
                         Description = "Hello from the Where-to-fly backend services!<br/>" +
-                            $"Next request date is {nextRequestDate.ToString()}",
-                        DetailsLink = string.Empty
+                            $"Next request date is {nextRequestDate}" +
+                            GetCoveredDistanceDescription(mapPoint),
+                        DetailsLink = string.Empty,
                     },
-                    NextRequestDate = nextRequestDate
+                    NextRequestDate = nextRequestDate,
                 });
+        }
+
+        /// <summary>
+        /// Calculates "covered distance" description text based on the current point
+        /// </summary>
+        /// <param name="mapPoint">current point</param>
+        /// <returns>description text to display</returns>
+        public static string GetCoveredDistanceDescription(MapPoint mapPoint)
+        {
+            var point1 = new MapPoint(47.754076, 12.352277, 0.0); // Kampenwand
+            var point2 = new MapPoint(46.017779, 11.900711, 0.0); // Feltre
+
+            double distanceTo1 = mapPoint.DistanceTo(point1);
+            double distanceTo2 = mapPoint.DistanceTo(point2);
+            double distanceBetween12 = point1.DistanceTo(point2);
+
+            // between the two points? (or in an circle spanning from point1 to point2
+            if (distanceTo1 < distanceBetween12 &&
+                distanceTo2 < distanceBetween12)
+            {
+                double percent = (distanceTo1 / distanceBetween12) * 100.0;
+                return $"<br/>Covered distance: {distanceTo1 / 1000.0:0.0} km, {percent:0.0}% done!";
+            }
+            else if (distanceTo1 < distanceTo2)
+            {
+                return $"<br/>Before start turnpoint ({distanceTo1 / 1000.0:0.0} km to start)!";
+            }
+            else
+            {
+                return $"<br/>End turnpoint reached ({distanceTo2 / 1000.0:0.0} km from end)!";
+            }
         }
 
         /// <summary>

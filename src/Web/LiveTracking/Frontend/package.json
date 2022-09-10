@@ -1,0 +1,37 @@
+{
+  "name": "wheretofly-livetracking-frontend",
+  "version": "1.0.0",
+  "description": "Where-to-fly LiveTracking frontend",
+  "main": "site.js",
+  "sideEffects": [
+    "./src/css/site.css"
+  ],
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "webpack --config webpack.config.js",
+    "build-release": "webpack --config webpack.release.config.js",
+    "watch": "webpack --watch"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vividos/WhereToFly.git"
+  },
+  "author": "vividos",
+  "license": "BSD-3-Clause",
+  "devDependencies": {
+    "copy-webpack-plugin": "^11.0.0",
+    "css-loader": "^6.7.1",
+    "file-loader": "^6.2.0",
+    "mini-css-extract-plugin": "^2.6.1",
+    "terser-webpack-plugin": "^5.3.3",
+    "webpack": "^5.74.0",
+    "webpack-cli": "^4.10.0"
+  },
+  "dependencies": {
+    "@fortawesome/fontawesome-free": "^6.1.2",
+    "@popperjs/core": "^2.11.5",
+    "bootstrap": "^5.2.0",
+    "jquery": "^3.6.0",
+    "wheretofly-weblib": "file:../../../Shared/WebLib"
+  }
+}

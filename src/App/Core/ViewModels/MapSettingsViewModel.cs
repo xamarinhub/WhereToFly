@@ -1,12 +1,14 @@
 ﻿using System.Collections.Generic;
 using System.Threading.Tasks;
-using WhereToFly.App.Model;
+using WhereToFly.App.Core.Models;
+using WhereToFly.App.MapView;
+using WhereToFly.Geo;
 using Xamarin.Forms;
 
 namespace WhereToFly.App.Core.ViewModels
 {
     /// <summary>
-    /// View model for the settings page
+    /// View model for the map settings page
     /// </summary>
     public class MapSettingsViewModel : ViewModelBase
     {
@@ -103,7 +105,14 @@ namespace WhereToFly.App.Core.ViewModels
                 if (this.appSettings.MapImageryType != value.Value)
                 {
                     this.appSettings.MapImageryType = value.Value;
-                    Task.Run(async () => await this.SaveSettingsAsync());
+                    Task.Run(async () =>
+                    {
+                        await this.SaveSettingsAsync();
+                        if (value.Value == MapImageryType.OpenFlightMaps)
+                        {
+                            await App.ShowFlightPlanningDisclaimerAsync();
+                        }
+                    });
                 }
             }
         }
@@ -193,9 +202,24 @@ namespace WhereToFly.App.Core.ViewModels
         }
 
         /// <summary>
-        /// Command to clear web view cache
+        /// Current value of the "entity clustering" switch state
         /// </summary>
-        public Command ClearWebViewCacheCommand { get; set; }
+        public bool MapEntityClustering
+        {
+            get
+            {
+                return this.appSettings.UseMapEntityClustering;
+            }
+
+            set
+            {
+                if (this.appSettings.UseMapEntityClustering != value)
+                {
+                    this.appSettings.UseMapEntityClustering = value;
+                    Task.Run(async () => await this.SaveSettingsAsync());
+                }
+            }
+        }
         #endregion
 
         /// <summary>
@@ -228,7 +252,7 @@ namespace WhereToFly.App.Core.ViewModels
                 new MapOverlayTypeViewModel { Text = "Thermal Skyways (thermal.kk7.ch)", Value = MapOverlayType.ThermalSkywaysKk7 },
                 new MapOverlayTypeViewModel { Text = "Contour lines", Value = MapOverlayType.ContourLines },
                 new MapOverlayTypeViewModel { Text = "Slope + contour lines", Value = MapOverlayType.SlopeAndContourLines },
-                new MapOverlayTypeViewModel { Text = "NASA Black Marble", Value = MapOverlayType.BlackMarble },
+                new MapOverlayTypeViewModel { Text = "NASA Black Marble 2017", Value = MapOverlayType.BlackMarble },
             };
 
             this.CoordinateDisplayFormatItems = new List<CoordinateDisplayFormatViewModel>
@@ -246,8 +270,6 @@ namespace WhereToFly.App.Core.ViewModels
                 new MapShadingModeViewModel { Text = "Current time + 6 hours", Value = MapShadingMode.Ahead6Hours },
                 new MapShadingModeViewModel { Text = "No shading", Value = MapShadingMode.None },
             };
-
-            this.ClearWebViewCacheCommand = new Command(App.ClearWebViewCache);
         }
 
         /// <summary>

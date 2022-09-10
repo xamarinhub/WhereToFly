@@ -1,4 +1,5 @@
-﻿using WhereToFly.App.Core;
+﻿using System;
+using WhereToFly.App.Core;
 using Xamarin.Forms;
 
 [assembly: Dependency(typeof(WhereToFly.App.UWP.UwpAppManager))]
@@ -10,6 +11,16 @@ namespace WhereToFly.App.UWP
     /// </summary>
     public class UwpAppManager : IAppManager
     {
+        /// <summary>
+        /// Determines if the app with given package name is available
+        /// </summary>
+        /// <param name="packageName">package name of app to check</param>
+        /// <returns>true when available, or false when not</returns>
+        public bool IsAvailable(string packageName)
+        {
+            return false;
+        }
+
         /// <summary>
         /// Starts app.
         /// </summary>
@@ -27,7 +38,7 @@ namespace WhereToFly.App.UWP
         /// <returns>image data bytes, or null when no image could be retrieved</returns>
         public byte[] GetAppIcon(string packageName)
         {
-            return new byte[0];
+            return Array.Empty<byte>();
         }
     }
 }

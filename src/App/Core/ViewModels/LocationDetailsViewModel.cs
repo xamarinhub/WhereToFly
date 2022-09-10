@@ -1,11 +1,13 @@
 ﻿using System;
-using System.Threading;
 using System.Threading.Tasks;
+using System.Windows.Input;
+using WhereToFly.App.Core.Logic;
+using WhereToFly.App.Core.Models;
+using WhereToFly.App.Core.Resources;
 using WhereToFly.App.Core.Services;
-using WhereToFly.App.Geo.Spatial;
-using WhereToFly.App.Logic;
-using WhereToFly.App.Model;
-using WhereToFly.Shared.Model;
+using WhereToFly.Geo;
+using WhereToFly.Geo.Model;
+using Xamarin.CommunityToolkit.ObjectModel;
 using Xamarin.Forms;
 
 namespace WhereToFly.App.Core.ViewModels
@@ -48,13 +50,26 @@ namespace WhereToFly.App.Core.ViewModels
         public ImageSource TypeImageSource { get; }
 
         /// <summary>
+        /// Returns if takeoff directions view should be visible at all
+        /// </summary>
+        public bool IsTakeoffDirectionsVisible
+            => this.location.Type == LocationType.FlyingTakeoff;
+
+        /// <summary>
+        /// Takeoff directions flags; only set for FlyingTakeoff locations
+        /// </summary>
+        public TakeoffDirections TakeoffDirections
+            => this.location.TakeoffDirections;
+
+        /// <summary>
         /// Property containing location type
         /// </summary>
         public string Type
         {
             get
             {
-                return this.location.Type.ToString();
+                string key = $"LocationType_{this.location.Type}";
+                return Strings.ResourceManager.GetString(key);
             }
         }
 
@@ -66,7 +81,7 @@ namespace WhereToFly.App.Core.ViewModels
             get
             {
                 return !this.location.MapLocation.Valid ? string.Empty :
-                    DataFormatter.FormatLatLong(this.location.MapLocation.Latitude, this.appSettings.CoordinateDisplayFormat);
+                    GeoDataFormatter.FormatLatLong(this.location.MapLocation.Latitude, this.appSettings.CoordinateDisplayFormat);
             }
         }
 
@@ -78,7 +93,7 @@ namespace WhereToFly.App.Core.ViewModels
             get
             {
                 return !this.location.MapLocation.Valid ? string.Empty :
-                    DataFormatter.FormatLatLong(this.location.MapLocation.Longitude, this.appSettings.CoordinateDisplayFormat);
+                    GeoDataFormatter.FormatLatLong(this.location.MapLocation.Longitude, this.appSettings.CoordinateDisplayFormat);
             }
         }
 
@@ -116,7 +131,7 @@ namespace WhereToFly.App.Core.ViewModels
         }
 
         /// <summary>
-        /// Property containing location description
+        /// Property containing WebViewSource of location description
         /// </summary>
         public WebViewSource DescriptionWebViewSource
         {
@@ -126,32 +141,42 @@ namespace WhereToFly.App.Core.ViewModels
         /// <summary>
         /// Command to execute when "refresh live waypoint" toolbar item is selected
         /// </summary>
-        public Command RefreshLiveWaypointCommand { get; set; }
+        public ICommand RefreshLiveWaypointCommand { get; set; }
 
         /// <summary>
         /// Command to execute when "add tour plan location" toolbar item is selected
         /// </summary>
-        public Command AddTourPlanLocationCommand { get; set; }
+        public ICommand AddTourPlanLocationCommand { get; set; }
 
         /// <summary>
         /// Command to execute when "zoom to" menu item is selected on a location
         /// </summary>
-        public Command ZoomToLocationCommand { get; set; }
+        public ICommand ZoomToLocationCommand { get; set; }
+
+        /// <summary>
+        /// Command to execute when "set as compass target" menu item is selected on a location
+        /// </summary>
+        public ICommand SetAsCompassTargetCommand { get; set; }
 
         /// <summary>
         /// Command to execute when "navigate to" menu item is selected on a location
         /// </summary>
-        public Command NavigateToLocationCommand { get; set; }
+        public ICommand NavigateToLocationCommand { get; set; }
 
         /// <summary>
         /// Command to execute when "share" menu item is selected on a location
         /// </summary>
-        public Command ShareLocationCommand { get; set; }
+        public ICommand ShareLocationCommand { get; set; }
 
         /// <summary>
         /// Command to execute when "delete" menu item is selected on a location
         /// </summary>
-        public Command DeleteLocationCommand { get; set; }
+        public ICommand DeleteLocationCommand { get; set; }
+
+        /// <summary>
+        /// Command to execute when user tapped on the internet link
+        /// </summary>
+        public ICommand InternetLinkTappedCommand { get; set; }
         #endregion
 
         /// <summary>
@@ -167,7 +192,7 @@ namespace WhereToFly.App.Core.ViewModels
             this.distance = 0.0;
 
             this.TypeImageSource =
-                SvgImageCache.GetImageSource(location, "#000000");
+                SvgImageCache.GetImageSource(location);
 
             this.SetupBindings();
         }
@@ -179,29 +204,40 @@ namespace WhereToFly.App.Core.ViewModels
         {
             this.DescriptionWebViewSource = new HtmlWebViewSource
             {
-                Html = this.location.Description,
-                BaseUrl = "about:blank"
+                Html = FormatLocationDescription(this.location),
+                BaseUrl = "about:blank",
             };
 
-            this.RefreshLiveWaypointCommand =
-                new Command(async () => await this.OnRefreshLiveWaypoint());
+            this.RefreshLiveWaypointCommand = new AsyncCommand(this.OnRefreshLiveWaypoint);
+            this.AddTourPlanLocationCommand = new Command(this.OnAddTourPlanLocation);
+            this.ZoomToLocationCommand = new AsyncCommand(this.OnZoomToLocationAsync);
+            this.SetAsCompassTargetCommand = new AsyncCommand(this.OnSetAsCompassTargetAsync);
+            this.NavigateToLocationCommand = new AsyncCommand(this.OnNavigateToLocationAsync);
+            this.ShareLocationCommand = new AsyncCommand(this.OnShareLocationAsync);
+            this.DeleteLocationCommand = new AsyncCommand(this.OnDeleteLocationAsync);
 
-            this.AddTourPlanLocationCommand =
-                new Command(this.OnAddTourPlanLocation);
-
-            this.ZoomToLocationCommand =
-                new Command(async () => await this.OnZoomToLocationAsync());
-
-            this.NavigateToLocationCommand =
-                new Command(async () => await this.OnNavigateToLocationAsync());
-
-            this.ShareLocationCommand =
-                new Command(async () => await this.OnShareLocationAsync());
-
-            this.DeleteLocationCommand =
-                new Command(async () => await this.OnDeleteLocationAsync());
+            if (Uri.TryCreate(this.InternetLink, UriKind.Absolute, out Uri _))
+            {
+                this.InternetLinkTappedCommand = new AsyncCommand(this.OnInternetLinkTappedAsync);
+            }
 
             Task.Run(this.UpdateDistance);
+        }
+
+        /// <summary>
+        /// Formats location description
+        /// </summary>
+        /// <param name="location">location to format description</param>
+        /// <returns>formatted description text</returns>
+        private static string FormatLocationDescription(Location location)
+        {
+            string desc = HtmlConverter.FromHtmlOrMarkdown(location.Description);
+
+            return HtmlConverter.AddTextColorStyles(
+                desc,
+                App.GetResourceColor("ElementTextColor"),
+                App.GetResourceColor("PageBackgroundColor"),
+                App.GetResourceColor("AccentColor"));
         }
 
         /// <summary>
@@ -210,8 +246,8 @@ namespace WhereToFly.App.Core.ViewModels
         /// <returns>task to wait on</returns>
         private async Task UpdateDistance()
         {
-            var geolocationService = DependencyService.Get<GeolocationService>();
-            var position = await geolocationService.GetCurrentPositionAsync();
+            var geolocationService = DependencyService.Get<IGeolocationService>();
+            var position = await geolocationService.GetLastKnownPositionAsync();
 
             if (position != null)
             {
@@ -240,7 +276,7 @@ namespace WhereToFly.App.Core.ViewModels
                 this.DescriptionWebViewSource = new HtmlWebViewSource
                 {
                     Html = this.location.Description,
-                    BaseUrl = "about:blank"
+                    BaseUrl = "about:blank",
                 };
 
                 this.OnPropertyChanged(nameof(this.Latitude));
@@ -250,16 +286,17 @@ namespace WhereToFly.App.Core.ViewModels
                 this.OnPropertyChanged(nameof(this.DescriptionWebViewSource));
 
                 // store new infos in location list
-                var locationList = await dataService.GetLocationListAsync(CancellationToken.None);
+                var locationDataService = dataService.GetLocationDataService();
 
-                var locationInList = locationList.Find(locationToCheck => locationToCheck.Id == this.location.Id);
+                var locationInList = await locationDataService.Get(this.location.Id);
                 locationInList.MapLocation = this.location.MapLocation;
                 locationInList.Description = this.location.Description;
 
-                await dataService.StoreLocationListAsync(locationList);
+                await locationDataService.Update(locationInList);
 
-                var liveWaypointRefreshService = DependencyService.Get<LiveWaypointRefreshService>();
-                liveWaypointRefreshService.UpdateLiveWaypointList(locationList);
+                var liveWaypointRefreshService = DependencyService.Get<LiveDataRefreshService>();
+                liveWaypointRefreshService.RemoveLiveWaypoint(locationInList.Id);
+                liveWaypointRefreshService.AddLiveWaypoint(locationInList);
             }
             catch (Exception ex)
             {
@@ -286,9 +323,28 @@ namespace WhereToFly.App.Core.ViewModels
         /// <returns>task to wait on</returns>
         private async Task OnZoomToLocationAsync()
         {
-            App.ZoomToLocation(this.location.MapLocation);
+            await App.UpdateLastShownPositionAsync(this.location.MapLocation);
 
-            await NavigationService.Instance.NavigateAsync(Constants.PageKeyMapPage, animated: true);
+            App.MapView.ZoomToLocation(this.location.MapLocation);
+
+            await NavigationService.GoToMap();
+        }
+
+        /// <summary>
+        /// Called when "Set as compass target" menu item is selected
+        /// </summary>
+        /// <returns>task to wait on</returns>
+        private async Task OnSetAsCompassTargetAsync()
+        {
+            var compassTarget = new CompassTarget
+            {
+                Title = this.location.Name,
+                TargetLocation = this.location.MapLocation,
+            };
+
+            await App.SetCompassTarget(compassTarget);
+
+            await NavigationService.GoToMap();
         }
 
         /// <summary>
@@ -329,21 +385,29 @@ namespace WhereToFly.App.Core.ViewModels
         private async Task OnDeleteLocationAsync()
         {
             var dataService = DependencyService.Get<IDataService>();
+            var locationDataService = dataService.GetLocationDataService();
 
-            var locationList = await dataService.GetLocationListAsync(CancellationToken.None);
+            await locationDataService.Remove(this.location.Id);
 
-            locationList.RemoveAll(x => x.Id == this.location.Id);
+            var liveWaypointRefreshService = DependencyService.Get<LiveDataRefreshService>();
+            liveWaypointRefreshService.RemoveLiveWaypoint(this.location.Id);
 
-            await dataService.StoreLocationListAsync(locationList);
-
-            var liveWaypointRefreshService = DependencyService.Get<LiveWaypointRefreshService>();
-            liveWaypointRefreshService.UpdateLiveWaypointList(locationList);
-
-            App.UpdateMapLocationsList();
+            App.MapView.RemoveLocation(this.location.Id);
 
             await NavigationService.Instance.GoBack();
 
             App.ShowToast("Selected location was deleted.");
+        }
+
+        /// <summary>
+        /// Called when the user tapped on the internet link
+        /// </summary>
+        /// <returns>task to wait on</returns>
+        private async Task OnInternetLinkTappedAsync()
+        {
+            await Xamarin.Essentials.Browser.OpenAsync(
+                new Uri(this.location.InternetLink),
+                Xamarin.Essentials.BrowserLaunchMode.External);
         }
     }
 }

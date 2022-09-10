@@ -294,3 +294,10 @@ src/bw-output/
 # my ignores
 stuff/
 *.designer.cs
+/src/Web/LiveTracking/wwwroot/css/site.min.css
+/src/Web/LiveTracking/wwwroot/js/site.min.js
+*.GeneratedMSBuildEditorConfig.editorconfig
+/src/Web/LiveTracking/wwwroot/
+/src/Shared/WebLib/dist/
+/src/App/MapView/Assets/
+/src/Shared/WebLib/dist-es5/

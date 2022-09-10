@@ -1,10 +1,10 @@
-﻿using System;
-using System.IO;
-using System.Threading;
-using System.Threading.Tasks;
+﻿using System.Threading.Tasks;
+using System.Windows.Input;
+using WhereToFly.App.Core.Logic;
 using WhereToFly.App.Core.Services;
-using WhereToFly.App.Geo;
-using WhereToFly.App.Logic;
+using WhereToFly.App.Core.Views;
+using WhereToFly.Geo.Model;
+using Xamarin.CommunityToolkit.ObjectModel;
 using Xamarin.Forms;
 
 namespace WhereToFly.App.Core.ViewModels
@@ -12,13 +12,8 @@ namespace WhereToFly.App.Core.ViewModels
     /// <summary>
     /// View model for the track details page
     /// </summary>
-    public class TrackDetailsViewModel
+    public class TrackDetailsViewModel : ViewModelBase
     {
-        /// <summary>
-        /// Track to show
-        /// </summary>
-        private readonly Track track;
-
         #region Binding properties
         /// <summary>
         /// Property containing track name
@@ -27,7 +22,7 @@ namespace WhereToFly.App.Core.ViewModels
         {
             get
             {
-                return this.track.Name;
+                return this.Track.Name;
             }
         }
 
@@ -39,12 +34,22 @@ namespace WhereToFly.App.Core.ViewModels
         /// <summary>
         /// Property that specifies if the color box is visible
         /// </summary>
-        public bool IsColorBoxVisible => !this.track.IsFlightTrack;
+        public bool IsColorBoxVisible => !this.Track.IsFlightTrack;
 
         /// <summary>
         /// Property that contains the track's color
         /// </summary>
-        public Color TrackColor => this.track.IsFlightTrack ? Color.Transparent : Color.FromHex(this.track.Color);
+        public Color TrackColor => this.Track.IsFlightTrack ? Color.Transparent : Color.FromHex(this.Track.Color);
+
+        /// <summary>
+        /// Command that is called when the user taps on the color box
+        /// </summary>
+        public ICommand ColorBoxTappedCommand { get; set; }
+
+        /// <summary>
+        /// Command that is called when the user taps on the track name box
+        /// </summary>
+        public ICommand TrackNameTappedCommand { get; set; }
 
         /// <summary>
         /// Property containing distance
@@ -53,7 +58,7 @@ namespace WhereToFly.App.Core.ViewModels
         {
             get
             {
-                return DataFormatter.FormatDistance(this.track.LengthInMeter);
+                return DataFormatter.FormatDistance(this.Track.LengthInMeter);
             }
         }
 
@@ -64,118 +69,35 @@ namespace WhereToFly.App.Core.ViewModels
         {
             get
             {
-                return DataFormatter.FormatDuration(this.track.Duration);
+                return DataFormatter.FormatDuration(this.Track.Duration);
             }
         }
 
         /// <summary>
-        /// Property containing number of track points
+        /// Track to display height profile for
         /// </summary>
-        public int NumTrackPoints
+        public Track Track { get; private set; }
+
+        /// <summary>
+        /// Command that is called when height profile should be opened in a new page
+        /// </summary>
+        public ICommand OpenHeightProfileCommand { get; set; }
+
+        /// <summary>
+        /// Property containing WebViewSource of location description
+        /// </summary>
+        public WebViewSource DescriptionWebViewSource
         {
-            get
-            {
-                return this.track.TrackPoints.Count;
-            }
+            get; private set;
         }
 
         /// <summary>
-        /// Property containing height gain
+        /// Indicates if the height profile view is displayed using a dark theme
         /// </summary>
-        public string HeightGain
+        public bool UseDarkTheme
         {
-            get
-            {
-                return this.track.HeightGain.ToString("F1") + " m";
-            }
+            get => Styles.ThemeHelper.CurrentTheme == Models.Theme.Dark;
         }
-
-        /// <summary>
-        /// Property containing height loss
-        /// </summary>
-        public string HeightLoss
-        {
-            get
-            {
-                return this.track.HeightLoss.ToString("F1") + " m";
-            }
-        }
-
-        /// <summary>
-        /// Property containing maximum height
-        /// </summary>
-        public string MaxHeight
-        {
-            get
-            {
-                return this.track.MaxHeight.ToString("F1") + " m";
-            }
-        }
-
-        /// <summary>
-        /// Property containing minimum height
-        /// </summary>
-        public string MinHeight
-        {
-            get
-            {
-                return this.track.MinHeight.ToString("F1") + " m";
-            }
-        }
-
-        /// <summary>
-        /// Property containing max. climb rate
-        /// </summary>
-        public string MaxClimbRate
-        {
-            get
-            {
-                return this.track.MaxClimbRate.ToString("F1") + " m/s";
-            }
-        }
-
-        /// <summary>
-        /// Property containing max. sink rate
-        /// </summary>
-        public string MaxSinkRate
-        {
-            get
-            {
-                return this.track.MaxSinkRate.ToString("F1") + " m/s";
-            }
-        }
-
-        /// <summary>
-        /// Property containing max. speed
-        /// </summary>
-        public string MaxSpeed
-        {
-            get
-            {
-                return this.track.MaxSpeed.ToString("F1") + " km/h";
-            }
-        }
-
-        /// <summary>
-        /// Property containing average speed
-        /// </summary>
-        public string AverageSpeed
-        {
-            get
-            {
-                return this.track.AverageSpeed.ToString("F1") + " km/h";
-            }
-        }
-
-        /// <summary>
-        /// Command to execute when "zoom to" menu item is selected on a track
-        /// </summary>
-        public Command ZoomToTrackCommand { get; set; }
-
-        /// <summary>
-        /// Command to execute when "delete" menu item is selected on a track
-        /// </summary>
-        public Command DeleteTrackCommand { get; set; }
         #endregion
 
         /// <summary>
@@ -184,55 +106,73 @@ namespace WhereToFly.App.Core.ViewModels
         /// <param name="track">track object</param>
         public TrackDetailsViewModel(Track track)
         {
-            this.track = track;
+            this.Track = track;
 
-            this.TypeImageSource = SvgImageCache.GetImageSource(track, "#000000");
+            this.TypeImageSource = SvgImageCache.GetImageSource(track);
 
-            this.SetupBindings();
+            this.ColorBoxTappedCommand =
+                this.TrackNameTappedCommand = new AsyncCommand(
+                    this.EditTrackInfos);
+
+            this.OpenHeightProfileCommand = new AsyncCommand(
+                this.OpenHeightProfilePage);
+
+            this.DescriptionWebViewSource = new HtmlWebViewSource
+            {
+                Html = FormatTrackDescription(this.Track),
+                BaseUrl = "about:blank",
+            };
         }
 
         /// <summary>
-        /// Sets up bindings for this view model
-        /// </summary>
-        private void SetupBindings()
-        {
-            this.ZoomToTrackCommand =
-                new Command(async () => await this.OnZoomToTrackAsync());
-
-            this.DeleteTrackCommand =
-                new Command(async () => await this.OnDeleteTrackAsync());
-        }
-
-        /// <summary>
-        /// Called when "Zoom to" menu item is selected
-        /// </summary>
-        /// <returns>task to wait on</returns>
-        private async Task OnZoomToTrackAsync()
-        {
-            App.ZoomToTrack(this.track);
-
-            await NavigationService.Instance.NavigateAsync(Constants.PageKeyMapPage, animated: true);
-        }
-
-        /// <summary>
-        /// Called when "Delete" menu item is selected
+        /// Called to edit track infos
         /// </summary>
         /// <returns>task to wait on</returns>
-        private async Task OnDeleteTrackAsync()
+        private async Task EditTrackInfos()
         {
-            var dataService = DependencyService.Get<IDataService>();
+            var editedTrack = await SetTrackInfosPopupPage.ShowAsync(this.Track);
 
-            var trackList = await dataService.GetTrackListAsync(CancellationToken.None);
+            if (editedTrack != null)
+            {
+                this.Track = editedTrack;
 
-            trackList.RemoveAll(x => x.Id == this.track.Id);
+                var dataService = DependencyService.Get<IDataService>();
+                var trackDataService = dataService.GetTrackDataService();
 
-            await dataService.StoreTrackListAsync(trackList);
+                await trackDataService.Update(this.Track);
+                App.MapView.UpdateTrack(this.Track);
 
-            App.UpdateMapTracksList();
+                this.OnPropertyChanged(nameof(this.TrackColor));
+            }
+        }
 
-            await NavigationService.Instance.GoBack();
+        /// <summary>
+        /// Opens height profile page
+        /// </summary>
+        /// <returns>task to wait on</returns>
+        private async Task OpenHeightProfilePage()
+        {
+            await NavigationService.Instance.NavigateAsync(
+                PageKey.TrackHeightProfilePage,
+                true,
+                this.Track);
+        }
 
-            App.ShowToast("Selected track was deleted.");
+        /// <summary>
+        /// Formats track description
+        /// </summary>
+        /// <param name="track">track to format description</param>
+        /// <returns>formatted description text</returns>
+        private static string FormatTrackDescription(Track track)
+        {
+            string desc = HtmlConverter.FromHtmlOrMarkdown(track.Description);
+            desc = desc.Replace("\n", "<br/>");
+
+            return HtmlConverter.AddTextColorStyles(
+                desc,
+                App.GetResourceColor("ElementTextColor"),
+                App.GetResourceColor("PageBackgroundColor"),
+                App.GetResourceColor("AccentColor"));
         }
     }
 }

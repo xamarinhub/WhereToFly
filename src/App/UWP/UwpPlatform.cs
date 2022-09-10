@@ -1,7 +1,8 @@
-﻿using System;
+using System;
 using System.IO;
 using WhereToFly.App.Core;
 using Windows.Storage;
+using Xamarin.Essentials;
 using Xamarin.Forms;
 
 [assembly: Dependency(typeof(WhereToFly.App.UWP.UwpPlatform))]
@@ -17,23 +18,18 @@ namespace WhereToFly.App.UWP
         /// <summary>
         /// Path URL for assets files
         /// </summary>
-        private const string AppxAssetsPathUrl = "ms-appx:///WhereToFly.App.Resources.UWP/Assets/";
+        private const string AppxAssetsPathUrl1 = "ms-appx:///WhereToFly.App.Resources/Assets/";
+
+        /// <summary>
+        /// Path URL for assets files, second variant
+        /// </summary>
+        private const string AppxAssetsPathUrl2 = "ms-appx:///WhereToFly.App.MapView/Assets/";
 #pragma warning restore S1075 // URIs should not be hardcoded
 
         /// <summary>
-        /// Property containing the UWP app data folder
+        /// Base path to use in WebView control, for UWP
         /// </summary>
-        public string AppDataFolder => ApplicationData.Current.LocalFolder.Path;
-
-        /// <summary>
-        /// Property containing the UWP app cache data folder
-        /// </summary>
-        public string CacheDataFolder => ApplicationData.Current.LocalCacheFolder.Path;
-
-        /// <summary>
-        /// Base path to use in WebView control, for Android
-        /// </summary>
-        public string WebViewBasePath => "ms-appx-web:///WhereToFly.App.Resources.UWP/Assets/";
+        public string WebViewBasePath => "ms-appx-web:///WhereToFly.App.MapView/Assets/";
 
         /// <summary>
         /// Opens UWP asset stream and returns it
@@ -42,10 +38,25 @@ namespace WhereToFly.App.UWP
         /// <returns>stream to read from file</returns>
         public Stream OpenAssetStream(string assetFilename)
         {
-            string fullAssetPath = AppxAssetsPathUrl + assetFilename;
+            string fullAssetPath = AppxAssetsPathUrl1 + assetFilename;
             var uri = new Uri(fullAssetPath);
 
-            var file = StorageFile.GetFileFromApplicationUriAsync(uri).AsTask().Result;
+            StorageFile file = null;
+            try
+            {
+                file = StorageFile.GetFileFromApplicationUriAsync(uri).AsTask().Result;
+            }
+            catch (Exception)
+            {
+                // ignore error when opening asset stream
+            }
+
+            if (file == null)
+            {
+                fullAssetPath = AppxAssetsPathUrl2 + assetFilename;
+                uri = new Uri(fullAssetPath);
+                file = StorageFile.GetFileFromApplicationUriAsync(uri).AsTask().Result;
+            }
 
             return file.OpenStreamForReadAsync().Result;
         }
@@ -57,26 +68,63 @@ namespace WhereToFly.App.UWP
         /// <returns>text content of asset</returns>
         public string LoadAssetText(string assetFilename)
         {
-            using (var stream = this.OpenAssetStream(assetFilename))
-            using (var streamReader = new StreamReader(stream))
+            using var stream = this.OpenAssetStream(assetFilename);
+            using var streamReader = new StreamReader(stream);
+            return streamReader.ReadToEnd();
+        }
+
+        /// <summary>
+        /// Sets app theme to use for platform. This ensures that platform dependent dialogs are
+        /// themed correctly when switching themes.
+        /// </summary>
+        /// <param name="requestedTheme">requested theme</param>
+        public void SetPlatformTheme(OSAppTheme requestedTheme)
+        {
+            // switch to UI thread; or else accessing RequestedTheme on UWP crashes
+            if (!MainThread.IsMainThread)
             {
-                return streamReader.ReadToEnd();
+                MainThread.BeginInvokeOnMainThread(() => this.SetPlatformTheme(requestedTheme));
+                return;
+            }
+
+            try
+            {
+                switch (requestedTheme)
+                {
+                    case OSAppTheme.Dark: App.Current.RequestedTheme = Windows.UI.Xaml.ApplicationTheme.Dark; break;
+                    case OSAppTheme.Light: App.Current.RequestedTheme = Windows.UI.Xaml.ApplicationTheme.Light; break;
+                    default:
+                        // ignore other requested themes
+                        break;
+                }
+            }
+            catch (Exception)
+            {
+                // ignore errors when setting theme
             }
         }
 
         /// <summary>
-        /// Loads binary data of asset file from given filename
+        /// Translates the compass' magnetic north heading (e.g. from Xamarin.Essentials.Compass
+        /// API) to true north.
         /// </summary>
-        /// <param name="assetFilename">asset filename</param>
-        /// <returns>binary content of asset</returns>
-        public byte[] LoadAssetBinaryData(string assetFilename)
+        /// <param name="headingMagneticNorthInDegrees">magnetic north heading</param>
+        /// <param name="latitudeInDegrees">latitude of current position</param>
+        /// <param name="longitudeInDegrees">longitude of current position</param>
+        /// <param name="altitudeInMeter">altitude of current position</param>
+        /// <param name="headingTrueNorthInDegrees">true north heading</param>
+        /// <returns>true when tralslating was successful, false when not available</returns>
+        public bool TranslateCompassMagneticNorthToTrueNorth(
+            int headingMagneticNorthInDegrees,
+            double latitudeInDegrees,
+            double longitudeInDegrees,
+            double altitudeInMeter,
+            out int headingTrueNorthInDegrees)
         {
-            using (var stream = this.OpenAssetStream(assetFilename))
-            using (var memoryStream = new MemoryStream())
-            {
-                stream.CopyTo(memoryStream);
-                return memoryStream.GetBuffer();
-            }
+            // on UWP this isn't possible. Xamarin.Essentials.Compass could return true north
+            // heading directly in the CompassData, but doesn't.
+            headingTrueNorthInDegrees = 0;
+            return false;
         }
     }
 }

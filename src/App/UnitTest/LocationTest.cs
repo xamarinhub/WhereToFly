@@ -1,7 +1,7 @@
 ﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json;
 using System.Collections.Generic;
-using WhereToFly.App.Model;
+using WhereToFly.Geo.Model;
 
 namespace WhereToFly.App.UnitTest
 {
@@ -63,7 +63,7 @@ namespace WhereToFly.App.UnitTest
             // set up
             var locationList = new List<Location>
             {
-                UnitTestHelper.GetDefaultLocation()
+                UnitTestHelper.GetDefaultLocation(),
             };
 
             // run

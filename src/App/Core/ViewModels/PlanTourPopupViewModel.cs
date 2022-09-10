@@ -3,15 +3,14 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Linq;
-using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using WhereToFly.App.Core.Services;
 using WhereToFly.App.Core.Views;
-using WhereToFly.App.Geo;
-using WhereToFly.App.Geo.Spatial;
-using WhereToFly.App.Model;
+using WhereToFly.Geo;
+using WhereToFly.Geo.Model;
 using WhereToFly.Shared.Model;
+using Xamarin.CommunityToolkit.ObjectModel;
 using Xamarin.Forms;
 
 namespace WhereToFly.App.Core.ViewModels
@@ -21,90 +20,6 @@ namespace WhereToFly.App.Core.ViewModels
     /// </summary>
     public class PlanTourPopupViewModel : ViewModelBase
     {
-        /// <summary>
-        /// View model for list entries for the tour planning list
-        /// </summary>
-        public class PlanTourListEntryViewModel : ViewModelBase
-        {
-            /// <summary>
-            /// Parent view model
-            /// </summary>
-            private readonly PlanTourPopupViewModel parent;
-
-            /// <summary>
-            /// Unique ID for view model, in order to find and compare them
-            /// </summary>
-            public string Id { get; private set; }
-
-            /// <summary>
-            /// Location for tour planning
-            /// </summary>
-            public Location Location { get; private set; }
-
-            #region Binding properties
-            /// <summary>
-            /// Returns image source for SvgImage in order to display the type image
-            /// </summary>
-            public ImageSource TypeImageSource { get; }
-
-            /// <summary>
-            /// Location name
-            /// </summary>
-            public string Name { get => this.Location.Name; }
-
-            /// <summary>
-            /// Command to move up location in the list
-            /// </summary>
-            public ICommand MoveUpCommand { get; set; }
-
-            /// <summary>
-            /// Command to move down location in the list
-            /// </summary>
-            public ICommand MoveDownCommand { get; set; }
-
-            /// <summary>
-            /// Command to remove location from the list
-            /// </summary>
-            public ICommand RemoveCommand { get; set; }
-            #endregion
-
-            /// <summary>
-            /// Creates a new view model for a list entry
-            /// </summary>
-            /// <param name="location">location object</param>
-            /// <param name="parent">parent view model</param>
-            public PlanTourListEntryViewModel(Location location, PlanTourPopupViewModel parent)
-            {
-                this.Id = Guid.NewGuid().ToString("B");
-                this.Location = location;
-                this.parent = parent;
-
-                this.TypeImageSource =
-                    SvgImageCache.GetImageSource(this.Location, "#000000");
-
-                this.MoveUpCommand = new Command(
-                    (obj) => this.parent.MoveUpLocation(this),
-                    (obj) => !this.parent.IsFirstLocation(this));
-
-                this.MoveDownCommand = new Command(
-                    (obj) => this.parent.MoveDownLocation(this),
-                    (obj) => !this.parent.IsLastLocation(this));
-
-                this.RemoveCommand = new Command(
-                    (obj) => this.parent.RemoveLocation(this));
-            }
-
-            /// <summary>
-            /// Updates binding properties, e.g. when list position has changed
-            /// </summary>
-            public void Update()
-            {
-                this.OnPropertyChanged(nameof(this.MoveUpCommand));
-                this.OnPropertyChanged(nameof(this.MoveDownCommand));
-                this.OnPropertyChanged(nameof(this.RemoveCommand));
-            }
-        }
-
         /// <summary>
         /// Tour planning parameters
         /// </summary>
@@ -125,7 +40,7 @@ namespace WhereToFly.App.Core.ViewModels
         /// <summary>
         /// Command to start tour planning
         /// </summary>
-        public Command PlanTourCommand { get; set; }
+        public AsyncCommand PlanTourCommand { get; set; }
 
         /// <summary>
         /// Command to close popup page
@@ -154,11 +69,11 @@ namespace WhereToFly.App.Core.ViewModels
             this.planTourParameters = planTourParameters;
             this.closePopupPage = closePopupPage;
 
-            this.PlanTourCommand = new Command(
-                async (obj) => await this.PlanTourAsync(),
+            this.PlanTourCommand = new AsyncCommand(
+                this.PlanTourAsync,
                 (obj) => this.IsTourPlanningPossible);
 
-            this.CloseCommand = new Command(async () => await this.ClosePageAsync());
+            this.CloseCommand = new AsyncCommand(this.ClosePageAsync);
 
             Task.Run(async () => await this.LoadDataAsync(planTourParameters.WaypointIdList));
         }
@@ -171,7 +86,9 @@ namespace WhereToFly.App.Core.ViewModels
         private async Task LoadDataAsync(List<string> waypointIdList)
         {
             var dataService = DependencyService.Get<IDataService>();
-            var locationList = await dataService.GetLocationListAsync(CancellationToken.None);
+            var locationDataService = dataService.GetLocationDataService();
+
+            var locationList = await locationDataService.GetList();
 
             var viewModelList =
                 from waypointId in waypointIdList
@@ -181,6 +98,7 @@ namespace WhereToFly.App.Core.ViewModels
             this.PlanTourList = new ObservableCollection<PlanTourListEntryViewModel>(viewModelList);
             this.OnPropertyChanged(nameof(this.PlanTourList));
             this.OnPropertyChanged(nameof(this.ShowWarningForMoreLocations));
+            this.PlanTourCommand.RaiseCanExecuteChanged();
         }
 
         /// <summary>
@@ -188,7 +106,7 @@ namespace WhereToFly.App.Core.ViewModels
         /// </summary>
         /// <param name="viewModel">location view model to check</param>
         /// <returns>true when it's the first location, false when not</returns>
-        private bool IsFirstLocation(PlanTourListEntryViewModel viewModel)
+        internal bool IsFirstLocation(PlanTourListEntryViewModel viewModel)
         {
             return this.PlanTourList.FirstOrDefault()?.Id == viewModel.Id;
         }
@@ -198,7 +116,7 @@ namespace WhereToFly.App.Core.ViewModels
         /// </summary>
         /// <param name="viewModel">location view model to check</param>
         /// <returns>true when it's the last location, false when not</returns>
-        private bool IsLastLocation(PlanTourListEntryViewModel viewModel)
+        internal bool IsLastLocation(PlanTourListEntryViewModel viewModel)
         {
             return this.PlanTourList.LastOrDefault()?.Id == viewModel.Id;
         }
@@ -207,9 +125,9 @@ namespace WhereToFly.App.Core.ViewModels
         /// Moves location down one entry in the list
         /// </summary>
         /// <param name="viewModel">location view model to move</param>
-        private void MoveDownLocation(PlanTourListEntryViewModel viewModel)
+        internal void MoveDownLocation(PlanTourListEntryViewModel viewModel)
         {
-            Debug.Assert(!this.IsFirstLocation(viewModel), "must not be called with the last location");
+            Debug.Assert(!this.IsLastLocation(viewModel), "must not be called with the last location");
 
             var locationViewModel = this.PlanTourList.FirstOrDefault(viewModelToCheck => viewModelToCheck.Id == viewModel.Id);
             if (locationViewModel != null)
@@ -233,7 +151,7 @@ namespace WhereToFly.App.Core.ViewModels
         /// Moves location up one entry in the list
         /// </summary>
         /// <param name="viewModel">location view model to move</param>
-        private void MoveUpLocation(PlanTourListEntryViewModel viewModel)
+        internal void MoveUpLocation(PlanTourListEntryViewModel viewModel)
         {
             Debug.Assert(!this.IsFirstLocation(viewModel), "must not be called with the first location");
 
@@ -259,7 +177,7 @@ namespace WhereToFly.App.Core.ViewModels
         /// Removes location from list
         /// </summary>
         /// <param name="viewModel">location view model to remove</param>
-        private void RemoveLocation(PlanTourListEntryViewModel viewModel)
+        internal void RemoveLocation(PlanTourListEntryViewModel viewModel)
         {
             var locationViewModel = this.PlanTourList.FirstOrDefault(viewModelToCheck => viewModelToCheck.Id == viewModel.Id);
 
@@ -274,7 +192,7 @@ namespace WhereToFly.App.Core.ViewModels
                 entryViewModel.Update();
             }
 
-            this.PlanTourCommand.ChangeCanExecute();
+            this.PlanTourCommand.RaiseCanExecuteChanged();
         }
 
         /// <summary>
@@ -316,9 +234,12 @@ namespace WhereToFly.App.Core.ViewModels
 
             var location = StartWaypointFromPlannedTour(plannedTour);
             await this.AddLocation(location);
-            App.UpdateMapLocationsList();
 
-            await NavigationService.Instance.NavigateAsync(Constants.PageKeyMapPage, animated: true);
+            App.MapView.AddLocation(location);
+
+            this.planTourParameters.WaypointIdList.Clear();
+
+            await NavigationService.GoToMap();
 
             ShowTrack(track);
         }
@@ -330,28 +251,51 @@ namespace WhereToFly.App.Core.ViewModels
         /// <returns>planned tour, or null when tour couldn't be planned</returns>
         private async Task<PlannedTour> CalculateTourAsync()
         {
-            var waitingDialog = new WaitingPopupPage("Planning tour...");
-
-            try
+            bool retry;
+            do
             {
-                await waitingDialog.ShowAsync();
+                retry = false;
 
-                var dataService = DependencyService.Get<IDataService>();
-                return await dataService.PlanTourAsync(this.planTourParameters);
-            }
-            catch (Exception ex)
-            {
-                App.LogError(ex);
+                var waitingDialog = new WaitingPopupPage("Planning tour...");
 
-                await App.Current.MainPage.DisplayAlert(
-                    Constants.AppTitle,
-                    "Error while planning tour: " + ex.Message,
-                    "OK");
+                try
+                {
+                    await waitingDialog.ShowAsync();
+
+                    var dataService = DependencyService.Get<IDataService>();
+                    return await dataService.PlanTourAsync(this.planTourParameters);
+                }
+                catch (Refit.ApiException refitException)
+                {
+                    App.LogError(refitException);
+                    Debug.WriteLine("Refit exception: " + refitException.Content);
+
+                    string text = refitException.HasContent
+                        ? refitException.Content
+                        : refitException.Message;
+
+                    retry = await App.Current.MainPage.DisplayAlert(
+                        Constants.AppTitle,
+                        "Error while planning tour: " + text,
+                        "Retry",
+                        "Close");
+                }
+                catch (Exception ex)
+                {
+                    App.LogError(ex);
+
+                    retry = await App.Current.MainPage.DisplayAlert(
+                        Constants.AppTitle,
+                        "Error while planning tour: " + ex.Message,
+                        "Retry",
+                        "Close");
+                }
+                finally
+                {
+                    await waitingDialog.HideAsync();
+                }
             }
-            finally
-            {
-                await waitingDialog.HideAsync();
-            }
+            while (retry);
 
             return null;
         }
@@ -370,8 +314,9 @@ namespace WhereToFly.App.Core.ViewModels
             {
                 Id = Guid.NewGuid().ToString("B"),
                 Name = "Planned Tour",
+                Description = plannedTour.Description,
                 IsFlightTrack = false,
-                TrackPoints = trackPoints.ToList()
+                TrackPoints = trackPoints.ToList(),
             };
 
             track.CalculateStatistics();
@@ -387,11 +332,9 @@ namespace WhereToFly.App.Core.ViewModels
         private static async Task AddTrack(Track track)
         {
             var dataService = DependencyService.Get<IDataService>();
+            var trackDataService = dataService.GetTrackDataService();
 
-            var currentList = await dataService.GetTrackListAsync(CancellationToken.None);
-            currentList.Add(track);
-
-            await dataService.StoreTrackListAsync(currentList);
+            await trackDataService.Add(track);
         }
 
         /// <summary>
@@ -400,8 +343,8 @@ namespace WhereToFly.App.Core.ViewModels
         /// <param name="track">track to show</param>
         private static void ShowTrack(Track track)
         {
-            App.AddMapTrack(track);
-            App.ZoomToTrack(track);
+            App.MapView.AddTrack(track);
+            App.MapView.ZoomToTrack(track);
 
             App.ShowToast("Track was added.");
         }
@@ -422,7 +365,7 @@ namespace WhereToFly.App.Core.ViewModels
                 MapLocation = startPoint,
                 Description = plannedTour.Description,
                 Type = LocationType.Waypoint,
-                InternetLink = string.Empty
+                InternetLink = string.Empty,
             };
         }
 
@@ -434,11 +377,9 @@ namespace WhereToFly.App.Core.ViewModels
         private async Task AddLocation(Location location)
         {
             var dataService = DependencyService.Get<IDataService>();
+            var locationDataService = dataService.GetLocationDataService();
 
-            var locationList = await dataService.GetLocationListAsync(CancellationToken.None);
-            locationList.Add(location);
-
-            await dataService.StoreLocationListAsync(locationList);
+            await locationDataService.Add(location);
         }
     }
 }

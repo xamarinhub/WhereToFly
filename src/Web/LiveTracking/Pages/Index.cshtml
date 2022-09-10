@@ -1,0 +1,124 @@
+﻿@page
+@model IndexModel
+@{
+    ViewData["Title"] = "Live Tracking";
+}
+
+<div class="offcanvas offcanvas-start" tabindex="-1" id="sidebar" data-bs-keyboard="false" data-bs-backdrop="false">
+    <div class="offcanvas-header sidebar-header">
+        <h5 class="offcanvas-title d-none d-sm-block" id="offcanvas">Live Tracking</h5>
+        <div id="btn-dismiss" data-bs-dismiss="offcanvas" data-bs-target="#sidebar" aria-label="Close">
+            <em class="fas fa-arrow-left"></em>
+        </div>
+    </div>
+
+    <div class="offcanvas-body px-0 py-0">
+        <div class="list-group sidebar-content" id="livetracking-list">
+            <div class="list-group-item">
+                <h5 class="mb-1">
+                    <img src="~/images/paragliding.svg" width="30" height="30" alt="paraglider" class="img-invert" />
+                    <span id="liveDataName">Live Waypoint</span>
+                </h5>
+                <p class="mb-1">
+                    <div id="liveDataDescription">
+                        Position: Lat/Long
+                    </div>
+                    <div class="d-flex w-100">
+                        <button type="button" class="btn btn-primary btn-sm me-1"
+                                onclick="javascript: liveTracking.zoomToByPrefix('liveData');">
+                            Zoom
+                        </button>
+                        <button type="button" class="btn btn-primary btn-sm me-1"
+                                onclick="javascript: liveTracking.updateByPrefix('liveData');">
+                            Update
+                        </button>
+                    </div>
+                </p>
+                <div class="d-flex w-100 justify-content-between">
+                    <small id="liveDataLastUpdate">Last update: N/A</small>
+                </div>
+            </div>
+        </div>
+
+        <div class="sidebar-header">
+            <h5>Settings</h5>
+        </div>
+
+        <div class="sidebar-content">
+            <label for="mapImageryType">Map imagery</label>
+            <select class="form-control" id="mapImageryType" name="mapImageryType"
+                    onChange="javascript: liveTracking.map.setMapImageryType(this.value.toString())">
+                <option selected value="OpenStreetMap">OpenStreetMap</option>
+                <option value="BingMapsAerialWithLabels">Bing maps Aerial with labels</option>
+                <option value="OpenTopoMap">OpenTopoMap</option>
+            </select>
+
+            <label for="mapShadingMode">Map shading mode</label>
+            <select class="form-control" id="mapShadingMode" name="mapShadingMode"
+                    onChange="javascript: liveTracking.map.setShadingMode(this.value.toString())">
+                <option selected value="Fixed10Am">Fixed at 10 am.</option>
+                <option value="Fixed3Pm">Fixed at 3 pm.</option>
+                <option value="CurrentTime">Current time</option>
+                <option value="Ahead6Hours">Current time + 6 hours</option>
+                <option value="None">No shading</option>
+            </select>
+
+            <label for="mapOverlayType">Map overlay</label>
+            <select class="form-control" id="mapOverlayType" name="mapOverlayType"
+                    onChange="javascript: liveTracking.map.setMapOverlayType(this.value.toString())">
+                <option selected value="None">None</option>
+                <option value="ContourLines">Contour lines</option>
+            </select>
+        </div>
+    </div>
+</div>
+
+<div id="content">
+    <div id="mapElement" class="map-element-fullscreen"></div>
+
+    <div class="toolbar-container toolbar-container-halftransparent">
+        <div id="liveTrackToolbar" class="livetrack-toolbar-container" style="display:none; bottom:130px"></div>
+
+        <div id="chartContainer" class="chart-and-toolbar-container chart-and-toolbar-container-outer" style="display:none">
+            <div class="chart-toolbar-container">
+                <div id="chartButtonClose"
+                     class="chart-toolbar-button"
+                     onclick="javascript:liveTracking.map.heightProfileView.hide();">
+                    <img class="chart-toolbar-button-image" src="images/close.svg" alt="close" />
+                </div>
+
+                <div id="chartButtonResetZoom"
+                     class="chart-toolbar-button"
+                     onclick="javascript:liveTracking.map.heightProfileView.resetZoom();">
+                    <img class="chart-toolbar-button-image" src="images/arrow-expand-horizontal.svg" alt="reset" />
+                </div>
+
+                <div id="chartButtonModeHover"
+                     class="chart-toolbar-button chart-toolbar-button-disabled"
+                     style="margin-left:0px;"
+                     onclick="javascript:liveTracking.map.heightProfileView.setModeHover();">
+                    <img class="chart-toolbar-button-image" src="images/gesture-tap.svg" alt="hover" />
+                </div>
+
+                <div id="chartButtonModeZoomAndPan"
+                     class="chart-toolbar-button"
+                     style="margin-right:0px;"
+                     onclick="javascript:liveTracking.map.heightProfileView.setModeZoomAndPan();">
+                    <img class="chart-toolbar-button-image" src="images/gesture-spread.svg" alt="zoom and pan" />
+                </div>
+            </div>
+            <div>
+                <canvas id="chartElement" class="chart-canvas"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script type="text/javascript">
+
+        function getLiveTrackingInfoList() {
+            var liveTrackingInfoList = @Html.Raw(Json.Serialize(Model.LiveTrackingInfoList));
+            return liveTrackingInfoList;
+        }
+
+</script>

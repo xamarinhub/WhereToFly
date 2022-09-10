@@ -1,4 +1,5 @@
-﻿using System.IO;
+using System.IO;
+using Xamarin.Forms;
 
 namespace WhereToFly.App.Core
 {
@@ -7,17 +8,6 @@ namespace WhereToFly.App.Core
     /// </summary>
     public interface IPlatform
     {
-        /// <summary>
-        /// Property containing the folder where the app can place its data files.
-        /// </summary>
-        string AppDataFolder { get; }
-
-        /// <summary>
-        /// Property containing the folder where the app can place cache files. The cache folder
-        /// can always be cleard without impact the app.
-        /// </summary>
-        string CacheDataFolder { get; }
-
         /// <summary>
         /// Base path to use in WebView control
         /// </summary>
@@ -38,10 +28,26 @@ namespace WhereToFly.App.Core
         string LoadAssetText(string assetFilename);
 
         /// <summary>
-        /// Loads binary data of asset file from given filename
+        /// Sets app theme to use for platform
         /// </summary>
-        /// <param name="assetFilename">asset filename</param>
-        /// <returns>binary content of asset</returns>
-        byte[] LoadAssetBinaryData(string assetFilename);
+        /// <param name="requestedTheme">requested theme</param>
+        void SetPlatformTheme(OSAppTheme requestedTheme);
+
+        /// <summary>
+        /// Translates the compass' magnetic north heading (e.g. from Xamarin.Essentials.Compass
+        /// API) to true north.
+        /// </summary>
+        /// <param name="headingMagneticNorthInDegrees">magnetic north heading</param>
+        /// <param name="latitudeInDegrees">latitude of current position</param>
+        /// <param name="longitudeInDegrees">longitude of current position</param>
+        /// <param name="altitudeInMeter">altitude of current position</param>
+        /// <param name="headingTrueNorthInDegrees">true north heading</param>
+        /// <returns>true when tralslating was successful, false when not available</returns>
+        bool TranslateCompassMagneticNorthToTrueNorth(
+            int headingMagneticNorthInDegrees,
+            double latitudeInDegrees,
+            double longitudeInDegrees,
+            double altitudeInMeter,
+            out int headingTrueNorthInDegrees);
     }
 }

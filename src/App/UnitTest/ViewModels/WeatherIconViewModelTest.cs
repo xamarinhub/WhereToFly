@@ -1,8 +1,7 @@
 ﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
-using System;
 using WhereToFly.App.Core;
+using WhereToFly.App.Core.Models;
 using WhereToFly.App.Core.ViewModels;
-using WhereToFly.App.Model;
 using Xamarin.Forms;
 
 namespace WhereToFly.App.UnitTest.ViewModels
@@ -21,7 +20,6 @@ namespace WhereToFly.App.UnitTest.ViewModels
         {
             Xamarin.Forms.Mocks.MockForms.Init();
             DependencyService.Register<IAppManager, UnitTestAppManager>();
-            DependencyService.Register<WeatherImageCache>();
         }
 
         /// <summary>
@@ -35,11 +33,11 @@ namespace WhereToFly.App.UnitTest.ViewModels
             {
                 Name = "Windy",
                 Type = WeatherIconDescription.IconType.IconApp,
-                WebLink = "com.windyty.android"
+                WebLink = "com.windyty.android",
             };
 
             // run
-            var viewModel = new WeatherIconViewModel(description);
+            var viewModel = new WeatherIconViewModel(null, description);
 
             ////Assert.IsTrue(
             ////    viewModel.WaitForPropertyChange(
@@ -64,11 +62,11 @@ namespace WhereToFly.App.UnitTest.ViewModels
             {
                 Name = "Windy",
                 Type = WeatherIconDescription.IconType.IconApp,
-                WebLink = "com.windyty.android"
+                WebLink = "com.windyty.android",
             };
 
             // run
-            var viewModel = new WeatherIconViewModel(description);
+            var viewModel = new WeatherIconViewModel(null, description);
             Assert.IsTrue(viewModel.Tapped.CanExecute(null), "command must be able to executed");
 
             viewModel.Tapped.Execute(null);
@@ -89,11 +87,11 @@ namespace WhereToFly.App.UnitTest.ViewModels
             {
                 Name = "Windy",
                 Type = WeatherIconDescription.IconType.IconLink,
-                WebLink = "https://localhost/test/123/"
+                WebLink = "https://localhost/test/123/",
             };
 
             // run
-            var viewModel = new WeatherIconViewModel(description);
+            var viewModel = new WeatherIconViewModel(null, description);
             Assert.IsTrue(viewModel.Tapped.CanExecute(null), "command must be able to executed");
 
             viewModel.Tapped.Execute(null);

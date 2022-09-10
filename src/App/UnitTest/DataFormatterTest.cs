@@ -1,8 +1,8 @@
 ﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System;
-using WhereToFly.App.Logic;
-using WhereToFly.App.Model;
-using WhereToFly.Shared.Model;
+using WhereToFly.App.Core.Logic;
+using WhereToFly.Geo;
+using WhereToFly.Geo.Model;
 
 namespace WhereToFly.App.UnitTest
 {
@@ -22,9 +22,9 @@ namespace WhereToFly.App.UnitTest
             double latLong = 47.6764385;
 
             // run
-            string text1 = DataFormatter.FormatLatLong(latLong, CoordinateDisplayFormat.Format_dd_dddddd);
-            string text2 = DataFormatter.FormatLatLong(latLong, CoordinateDisplayFormat.Format_dd_mm_mmm);
-            string text3 = DataFormatter.FormatLatLong(latLong, CoordinateDisplayFormat.Format_dd_mm_sss);
+            string text1 = GeoDataFormatter.FormatLatLong(latLong, CoordinateDisplayFormat.Format_dd_dddddd);
+            string text2 = GeoDataFormatter.FormatLatLong(latLong, CoordinateDisplayFormat.Format_dd_mm_mmm);
+            string text3 = GeoDataFormatter.FormatLatLong(latLong, CoordinateDisplayFormat.Format_dd_mm_sss);
 
             // check
             Assert.AreEqual("47.676439", text1, "formatted text must match");
@@ -42,9 +42,9 @@ namespace WhereToFly.App.UnitTest
             double latLong = -47.6764385;
 
             // run
-            string text1 = DataFormatter.FormatLatLong(latLong, CoordinateDisplayFormat.Format_dd_dddddd);
-            string text2 = DataFormatter.FormatLatLong(latLong, CoordinateDisplayFormat.Format_dd_mm_mmm);
-            string text3 = DataFormatter.FormatLatLong(latLong, CoordinateDisplayFormat.Format_dd_mm_sss);
+            string text1 = GeoDataFormatter.FormatLatLong(latLong, CoordinateDisplayFormat.Format_dd_dddddd);
+            string text2 = GeoDataFormatter.FormatLatLong(latLong, CoordinateDisplayFormat.Format_dd_mm_mmm);
+            string text3 = GeoDataFormatter.FormatLatLong(latLong, CoordinateDisplayFormat.Format_dd_mm_sss);
 
             // check
             Assert.AreEqual("-47.676439", text1, "formatted text must match");
@@ -102,7 +102,11 @@ namespace WhereToFly.App.UnitTest
 
             // check
             Assert.AreEqual("42 m", text1, "formatted text must match");
-            Assert.AreEqual("4.2 km", text2, "formatted text must match");
+
+            string separator = System.Globalization.CultureInfo.CurrentCulture.NumberFormat.NumberDecimalSeparator;
+            string expectedText2 = $"4{separator}2 km";
+            Assert.AreEqual(expectedText2, text2, "formatted text must match");
+
             Assert.AreEqual("-", text3, "formatted text must match");
         }
 

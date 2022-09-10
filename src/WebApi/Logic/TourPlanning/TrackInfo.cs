@@ -1,7 +1,7 @@
 ﻿using QuickGraph;
 using System;
 using System.Collections.Generic;
-using WhereToFly.Shared.Model;
+using WhereToFly.Geo.Model;
 
 namespace WhereToFly.WebApi.Logic.TourPlanning
 {
@@ -26,6 +26,7 @@ namespace WhereToFly.WebApi.Logic.TourPlanning
         public List<MapPoint> MapPointList { get; set; } = new List<MapPoint>();
 
         #region IEdge implementation
+
         /// <summary>
         /// Edge source; the waypoint where the track starts
         /// </summary>

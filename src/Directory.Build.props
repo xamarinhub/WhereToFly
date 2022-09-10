@@ -1,0 +1,31 @@
+﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <Product>Where-to-fly</Product>
+    <VersionPrefix>1.14.0</VersionPrefix>
+    <Copyright>Copyright © 2017-2022 Michael Fink</Copyright>
+    <Company></Company>
+    <NuGetPackagePrefix>Vividos</NuGetPackagePrefix>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <DebugType>portable</DebugType>
+    <DebugSymbols>true</DebugSymbols>
+    <LangVersion>latest</LangVersion>
+    <GenerateSerializationAssemblies>Off</GenerateSerializationAssemblies>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Add reference to SonarAnalyzer analyzers to all projects -->
+    <PackageReference Include="SonarAnalyzer.CSharp" Version="8.*">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+
+    <!-- Add reference to StyleCop analyzers to all projects -->
+    <PackageReference Include="StyleCop.Analyzers" Version="1.2.0-beta.435">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <AdditionalFiles Include="$(MSBuildThisFileDirectory)stylecop.json" Link="stylecop.json" />
+  </ItemGroup>
+</Project>

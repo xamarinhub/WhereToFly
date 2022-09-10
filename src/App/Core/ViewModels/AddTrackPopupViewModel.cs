@@ -1,8 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using WhereToFly.App.Geo;
-using WhereToFly.App.Geo.Spatial;
+using WhereToFly.Geo;
+using WhereToFly.Geo.Model;
+using Xamarin.Forms;
 
 namespace WhereToFly.App.Core.ViewModels
 {
@@ -20,6 +21,11 @@ namespace WhereToFly.App.Core.ViewModels
         /// Track point interval as time span; default is 1.0 seconds
         /// </summary>
         private TimeSpan trackPointInterval = TimeSpan.FromSeconds(1.0);
+
+        /// <summary>
+        /// Track offset, in meter; default value is 0 meter
+        /// </summary>
+        private int trackOffset;
 
         #region Binding properties
         /// <summary>
@@ -74,27 +80,47 @@ namespace WhereToFly.App.Core.ViewModels
             {
                 this.Track.IsFlightTrack = value;
                 this.OnPropertyChanged(nameof(this.IsFlightTrack));
+                this.OnPropertyChanged(nameof(this.IsTrackOffsetPickerVisible));
+                this.OnPropertyChanged(nameof(this.TrackOffset));
                 this.OnPropertyChanged(nameof(this.IsColorPickerVisible));
+            }
+        }
+
+        /// <summary>
+        /// Property containing flag if the track offset controls are visible
+        /// </summary>
+        public bool IsTrackOffsetPickerVisible
+        {
+            get => this.Track.IsFlightTrack;
+        }
+
+        /// <summary>
+        /// Track offset as text
+        /// </summary>
+        public string TrackOffset
+        {
+            get => this.trackOffset.ToString();
+            set
+            {
+                this.trackOffset = string.IsNullOrEmpty(value) ? 0 : int.Parse(value);
+                this.OnPropertyChanged(nameof(this.TrackOffset));
             }
         }
 
         /// <summary>
         /// Property containing flag if the color picker controls are visible
         /// </summary>
-        public bool IsColorPickerVisible
-        {
-            get => !this.Track.IsFlightTrack;
-        }
+        public bool IsColorPickerVisible => !this.Track.IsFlightTrack;
 
         /// <summary>
-        /// Propertiy containing the color of the track, in format RRGGBB
+        /// Property containing the color of the track
         /// </summary>
-        public string SelectedTrackColor
+        public Color SelectedTrackColor
         {
-            get => this.Track.Color;
+            get => Color.FromHex("#" + this.Track.Color);
             set
             {
-                this.Track.Color = value;
+                this.Track.Color = value.ToHex().Replace("#FF", string.Empty);
                 this.OnPropertyChanged(nameof(this.SelectedTrackColor));
             }
         }
@@ -121,7 +147,7 @@ namespace WhereToFly.App.Core.ViewModels
         }
 
         /// <summary>
-        /// Updates track, e.g. with new track point interval
+        /// Updates track, e.g. with new track point interval or track offset
         /// </summary>
         public void UpdateTrack()
         {
@@ -129,6 +155,12 @@ namespace WhereToFly.App.Core.ViewModels
             {
                 this.Track.GenerateTrackPointTimeValues(DateTimeOffset.Now, this.trackPointInterval);
                 this.Track.CalculateStatistics();
+            }
+
+            if (this.IsFlightTrack &&
+                this.trackOffset != 0)
+            {
+                this.Track.ApplyAltitudeOffset(this.trackOffset);
             }
         }
     }

@@ -2,18 +2,25 @@
 using Microsoft.AppCenter.Crashes;
 using Microsoft.AppCenter.Distribute;
 using System;
-using System.IO;
+using System.Diagnostics;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using WhereToFly.App.Core.Models;
 using WhereToFly.App.Core.Services;
+using WhereToFly.App.Core.Styles;
 using WhereToFly.App.Core.Views;
-using WhereToFly.App.Geo;
-using WhereToFly.App.Model;
-using WhereToFly.Shared.Model;
+using WhereToFly.App.MapView;
+using WhereToFly.Geo;
+using WhereToFly.Geo.Model;
 using Xamarin.Forms;
+using Xamarin.Forms.Xaml;
 
 // make Core internals visible to unit tests
 [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("WhereToFly.App.UnitTest")]
+
+// compile all xaml pages
+[assembly: XamlCompilation(XamlCompilationOptions.Compile)]
 
 namespace WhereToFly.App.Core
 {
@@ -23,9 +30,11 @@ namespace WhereToFly.App.Core
     public partial class App : Application
     {
         /// <summary>
-        /// Filename for the weather image cache file
+        /// Task completion source which task is completed when the app has finished
+        /// initialisation
         /// </summary>
-        private const string WeatherImageCacheFilename = "weatherImageCache.json";
+        private static readonly TaskCompletionSource<bool> TaskCompletionSourceInitialized
+            = new();
 
         /// <summary>
         /// Application settings
@@ -36,6 +45,22 @@ namespace WhereToFly.App.Core
         /// The one and only map page (displaying the map using CesiumJS)
         /// </summary>
         public MapPage MapPage { get; internal set; }
+
+        /// <summary>
+        /// Access to the map view instance
+        /// </summary>
+        public static IMapView MapView => (Current as App).MapPage.MapView;
+
+        /// <summary>
+        /// Task that can be awaited to wait for a completed app initialisation. The task performs
+        /// the following:
+        /// - sets up dependency service objects
+        /// - sets up main page and map page
+        /// - loads app data
+        /// - initializes live waypoint refresh service
+        /// Note that MapPage also has a task to wait for initialized page.
+        /// </summary>
+        public static Task InitializedTask => TaskCompletionSourceInitialized.Task;
 
         /// <summary>
         /// Creates a new app object
@@ -52,10 +77,49 @@ namespace WhereToFly.App.Core
                     typeof(Crashes));
             }
 
+            TaskScheduler.UnobservedTaskException += this.TaskScheduler_UnobservedTaskException;
+
             this.InitializeComponent();
             this.SetupDepencencyService();
             this.SetupMainPage();
-            Task.Run(async () => await this.LoadAppDataAsync());
+
+            if (!TaskCompletionSourceInitialized.Task.IsCompleted)
+            {
+                Task.Run(async () => await this.LoadAppDataAsync());
+            }
+
+            this.RequestedThemeChanged += this.OnRequestedThemeChanged;
+        }
+
+        /// <summary>
+        /// Called when an exception was thrown in a Task and nobody caught it
+        /// </summary>
+        /// <param name="sender">sender object</param>
+        /// <param name="args">event args</param>
+        private void TaskScheduler_UnobservedTaskException(object sender, UnobservedTaskExceptionEventArgs args)
+        {
+            Exception ex = args.Exception.InnerExceptions.Count == 1
+                ? args.Exception.InnerException
+                : args.Exception;
+
+            Debug.WriteLine($"UnobservedTaskException: {ex}");
+
+            LogError(ex);
+        }
+
+        /// <summary>
+        /// Called when the requested theme of the operating system has changed
+        /// </summary>
+        /// <param name="sender">sender object</param>
+        /// <param name="args">event args</param>
+        private void OnRequestedThemeChanged(object sender, AppThemeChangedEventArgs args)
+        {
+            Debug.WriteLine($"OS App Theme changed to {args.RequestedTheme}");
+
+            if (Settings != null)
+            {
+                ThemeHelper.ChangeTheme(Settings.AppTheme, true);
+            }
         }
 
         /// <summary>
@@ -63,10 +127,11 @@ namespace WhereToFly.App.Core
         /// </summary>
         private void SetupDepencencyService()
         {
+            DependencyService.Register<SvgImageCache>();
             DependencyService.Register<NavigationService>();
-            DependencyService.Register<IDataService, DataService>();
-            DependencyService.Register<GeolocationService>();
-            DependencyService.Register<LiveWaypointRefreshService>();
+            DependencyService.Register<IDataService, Services.SqliteDatabase.SqliteDatabaseDataService>();
+            DependencyService.Register<IGeolocationService, GeolocationService>();
+            DependencyService.Register<LiveDataRefreshService>();
         }
 
         /// <summary>
@@ -88,12 +153,13 @@ namespace WhereToFly.App.Core
         private async Task LoadAppDataAsync()
         {
             var dataService = DependencyService.Get<IDataService>();
+            Settings = await dataService.GetAppSettingsAsync(CancellationToken.None);
 
-            App.Settings = await dataService.GetAppSettingsAsync(CancellationToken.None);
+            ThemeHelper.ChangeTheme(Settings.AppTheme, true);
 
-            LoadWeatherImageCache();
-            LoadFaviconUrlCache();
             await InitLiveWaypointRefreshService();
+
+            TaskCompletionSourceInitialized.SetResult(true);
         }
 
         /// <summary>
@@ -147,9 +213,23 @@ namespace WhereToFly.App.Core
         /// <param name="message">toast message text</param>
         public static void ShowToast(string message)
         {
-            var app = Xamarin.Forms.Application.Current as App;
+            var app = Current as App;
 
-            MessagingCenter.Send<App, string>(app, Constants.MessageShowToast, message);
+            MessagingCenter.Send(app, Constants.MessageShowToast, message);
+        }
+
+        /// <summary>
+        /// Returns color hex string for given resource color key
+        /// </summary>
+        /// <param name="colorKey">resource color key</param>
+        /// <returns>hex color string, in the format #RRGGBB</returns>
+        public static string GetResourceColor(string colorKey)
+        {
+            return Current?.Resources != null &&
+                Current.Resources.TryGetValue(colorKey, out object value) &&
+                value is Color color
+                ? color.ToHex().Replace("#FF", "#")
+                : "#000000";
         }
 
         /// <summary>
@@ -164,84 +244,6 @@ namespace WhereToFly.App.Core
         }
 
         /// <summary>
-        /// Clears cache of WebView used for map view and reloads map
-        /// </summary>
-        public static void ClearWebViewCache()
-        {
-            var app = Xamarin.Forms.Application.Current as App;
-
-            MessagingCenter.Send(app, Constants.MessageWebViewClearCache);
-
-            Task.Run(() => app.MapPage.ReloadMapAsync());
-        }
-
-        /// <summary>
-        /// Adds new map layer
-        /// </summary>
-        /// <param name="layer">layer to add</param>
-        public static void AddMapLayer(Layer layer)
-        {
-            var app = Current as App;
-
-            MessagingCenter.Send<App, Layer>(app, Constants.MessageAddLayer, layer);
-        }
-
-        /// <summary>
-        /// Zooms to given layer
-        /// </summary>
-        /// <param name="layer">layer to zoom to</param>
-        public static void ZoomToLayer(Layer layer)
-        {
-            var app = Current as App;
-
-            MessagingCenter.Send<App, Layer>(app, Constants.MessageZoomToLayer, layer);
-        }
-
-        /// <summary>
-        /// Sets new layer visibility
-        /// </summary>
-        /// <param name="layer">layer to set visibility</param>
-        public static void SetLayerVisibility(Layer layer)
-        {
-            var app = Current as App;
-
-            MessagingCenter.Send<App, Layer>(app, Constants.MessageSetLayerVisibility, layer);
-        }
-
-        /// <summary>
-        /// removes given layer from the map
-        /// </summary>
-        /// <param name="layer">layer to remove</param>
-        public static void RemoveLayer(Layer layer)
-        {
-            var app = Current as App;
-
-            MessagingCenter.Send<App, Layer>(app, Constants.MessageRemoveLayer, layer);
-        }
-
-        /// <summary>
-        /// Clears all layers on the map
-        /// </summary>
-        public static void ClearLayerList()
-        {
-            var app = Current as App;
-
-            MessagingCenter.Send<App>(app, Constants.MessageClearLayerList);
-        }
-
-        /// <summary>
-        /// Adds a track to the map view; when the map page is currently invisible, the add is
-        /// carried out when the page appears.
-        /// </summary>
-        /// <param name="track">track to add</param>
-        public static void AddMapTrack(Track track)
-        {
-            var app = Xamarin.Forms.Application.Current as App;
-
-            MessagingCenter.Send<App, Track>(app, Constants.MessageAddTrack, track);
-        }
-
-        /// <summary>
         /// Adds a tour planning location to the current list of locations and opens the planning
         /// dialog.
         /// </summary>
@@ -250,31 +252,20 @@ namespace WhereToFly.App.Core
         {
             var app = Current as App;
 
-            MessagingCenter.Send<App, Location>(app, Constants.MessageAddTourPlanLocation, location);
+            MessagingCenter.Send(app, Constants.MessageAddTourPlanLocation, location);
         }
 
         /// <summary>
-        /// Zooms to location on opened MapPage; when the map page is currently invisible, the
-        /// zoom is carried out when the page appears.
+        /// Adds track to map view
         /// </summary>
-        /// <param name="location">location to zoom to</param>
-        public static void ZoomToLocation(MapPoint location)
+        /// <param name="track">track to add</param>
+        /// <returns>task to wait on</returns>
+        public static async Task AddTrack(Track track)
         {
-            var app = Xamarin.Forms.Application.Current as App;
+            var point = track.CalculateCenterPoint();
+            await UpdateLastShownPositionAsync(point);
 
-            MessagingCenter.Send<App, MapPoint>(app, Constants.MessageZoomToLocation, location);
-        }
-
-        /// <summary>
-        /// Zooms to track on opened MapPage; when the map page is currently invisible, the zoom
-        /// is carried out when the page appears.
-        /// </summary>
-        /// <param name="track">track to zoom to</param>
-        public static void ZoomToTrack(Track track)
-        {
-            var app = Xamarin.Forms.Application.Current as App;
-
-            MessagingCenter.Send<App, Track>(app, Constants.MessageZoomToTrack, track);
+            MapView.AddTrack(track);
         }
 
         /// <summary>
@@ -282,88 +273,88 @@ namespace WhereToFly.App.Core
         /// </summary>
         public static void UpdateMapSettings()
         {
-            var app = Xamarin.Forms.Application.Current as App;
+            var app = Current as App;
 
-            MessagingCenter.Send<App>(app, Constants.MessageUpdateMapSettings);
+            MessagingCenter.Send(app, Constants.MessageUpdateMapSettings);
         }
 
         /// <summary>
-        /// Updates locations list on opened MapPage.
+        /// Updates last shown position in app settings
         /// </summary>
-        public static void UpdateMapLocationsList()
-        {
-            var app = Xamarin.Forms.Application.Current as App;
-
-            MessagingCenter.Send<App>(app, Constants.MessageUpdateMapLocations);
-        }
-
-        /// <summary>
-        /// Updates tracks list on opened MapPage.
-        /// </summary>
-        public static void UpdateMapTracksList()
-        {
-            var app = Xamarin.Forms.Application.Current as App;
-
-            MessagingCenter.Send<App>(app, Constants.MessageUpdateMapTracks);
-        }
-
-        /// <summary>
-        /// Opens file for importing data
-        /// </summary>
-        /// <param name="stream">stream to import</param>
-        /// <param name="filename">filename of stream</param>
+        /// <param name="point">current position</param>
+        /// <param name="viewingDistance">current viewing distance; may be unset</param>
         /// <returns>task to wait on</returns>
-        public async Task OpenFileAsync(Stream stream, string filename)
+        public static async Task UpdateLastShownPositionAsync(MapPoint point, int? viewingDistance = null)
         {
-            await OpenFileHelper.OpenFileAsync(stream, filename);
+            if (Settings == null)
+            {
+                return; // app settings not loaded yet
+            }
+
+            if (point.Valid)
+            {
+                Settings.LastShownPosition = point;
+
+                if (viewingDistance.HasValue)
+                {
+                    Settings.LastViewingDistance = viewingDistance.Value;
+                }
+
+                var dataService = DependencyService.Get<IDataService>();
+                await dataService.StoreAppSettingsAsync(Settings);
+            }
+        }
+
+        /// <summary>
+        /// Sets (or clears) the current compass target
+        /// </summary>
+        /// <param name="compassTarget">compass target; may be null</param>
+        /// <returns>task to wait on</returns>
+        public static async Task SetCompassTarget(CompassTarget compassTarget)
+        {
+            if (Settings == null)
+            {
+                return; // app settings not loaded yet
+            }
+
+            Settings.CurrentCompassTarget = compassTarget;
+
+            var dataService = DependencyService.Get<IDataService>();
+            await dataService.StoreAppSettingsAsync(Settings);
+
+            if (compassTarget == null)
+            {
+                MapView.ClearCompass();
+            }
+            else
+            {
+                if (compassTarget.TargetLocation != null)
+                {
+                    MapView.SetCompassTarget(
+                        compassTarget.Title,
+                        compassTarget.TargetLocation,
+                        zoomToPolyline: true);
+                }
+                else
+                {
+                    Debug.Assert(
+                        compassTarget.TargetDirection.HasValue,
+                        "either target location or target direction must be set");
+
+                    MapView.SetCompassDirection(
+                        compassTarget.Title,
+                        compassTarget.TargetDirection ?? 0);
+                }
+            }
         }
 
         /// <summary>
         /// Opens app resource URI, e.g. a live waypoint
         /// </summary>
         /// <param name="uri">app resource URI to open</param>
-        /// <returns>task to wait on</returns>
-        public async Task OpenAppResourceUriAsync(string uri)
+        public static void OpenAppResourceUri(string uri)
         {
-            await OpenAppResourceUriHelper.Open(uri);
-        }
-
-        /// <summary>
-        /// Loads the contents of the weather image cache
-        /// </summary>
-        private static void LoadWeatherImageCache()
-        {
-            var platform = DependencyService.Get<IPlatform>();
-            string cacheFilename = Path.Combine(platform.CacheDataFolder, WeatherImageCacheFilename);
-
-            if (File.Exists(cacheFilename))
-            {
-                try
-                {
-                    var imageCache = DependencyService.Get<WeatherImageCache>();
-                    imageCache.LoadCache(cacheFilename);
-                }
-                catch (Exception ex)
-                {
-                    App.LogError(ex);
-                }
-            }
-        }
-
-        /// <summary>
-        /// Loads the favicon url cache
-        /// </summary>
-        private static void LoadFaviconUrlCache()
-        {
-            try
-            {
-                var dataService = DependencyService.Get<IDataService>();
-                (dataService as DataService).LoadFaviconUrlCache();
-            }
-            catch (Exception ex)
-            {
-                App.LogError(ex);
-            }
+            RunOnUiThread(async () => await OpenAppResourceUriHelper.OpenAsync(uri));
         }
 
         /// <summary>
@@ -373,54 +364,57 @@ namespace WhereToFly.App.Core
         private static async Task InitLiveWaypointRefreshService()
         {
             var dataService = DependencyService.Get<IDataService>();
+            var locationDataService = dataService.GetLocationDataService();
 
-            var locationList = await dataService.GetLocationListAsync(CancellationToken.None);
+            var locationList = await locationDataService.GetList();
 
-            var liveWaypointRefreshService = DependencyService.Get<LiveWaypointRefreshService>();
+            var liveWaypointRefreshService = DependencyService.Get<LiveDataRefreshService>();
             liveWaypointRefreshService.DataService = dataService;
 
-            liveWaypointRefreshService.UpdateLiveWaypointList(locationList);
+            liveWaypointRefreshService.AddLiveWaypointList(locationList);
+
+            var trackDataService = dataService.GetTrackDataService();
+
+            var trackList = await trackDataService.GetList();
+
+            var liveTrackList = trackList.Where(track => track.IsLiveTrack);
+
+            foreach (var liveTrack in liveTrackList)
+            {
+                liveWaypointRefreshService.AddLiveTrack(liveTrack);
+            }
         }
 
         /// <summary>
-        /// Samples track heights for given track, updating track point altitudes in-place
+        /// Shows the flight planning disclaimer dialog, when not already shown to the user.
         /// </summary>
-        /// <param name="track">track to sample heights</param>
-        /// <param name="offsetInMeters">offset in meters to add to track</param>
         /// <returns>task to wait on</returns>
-        public static async Task SampleTrackHeightsAsync(Track track, double offsetInMeters)
+        public static async Task ShowFlightPlanningDisclaimerAsync()
         {
-            var app = Current as App;
+            var dataService = DependencyService.Get<IDataService>();
+            var appSettings = await dataService.GetAppSettingsAsync(CancellationToken.None);
 
-            await app.MapPage.SampleTrackHeightsAsync(track, offsetInMeters);
-        }
-
-        /// <summary>
-        /// Stores the contents of the weather image cache in the cache folder
-        /// </summary>
-        private static void StoreWeatherImageCache()
-        {
-            var platform = DependencyService.Get<IPlatform>();
-            string cacheFilename = Path.Combine(platform.CacheDataFolder, WeatherImageCacheFilename);
-
-            var imageCache = DependencyService.Get<WeatherImageCache>();
-            imageCache.StoreCache(cacheFilename);
-        }
-
-        /// <summary>
-        /// Stores the contents of the favicon url cache in the cache folder
-        /// </summary>
-        private static void StoreFaviconUrlCache()
-        {
-            try
+            if (appSettings.ShownFlightPlanningDisclaimer)
             {
-                var dataService = DependencyService.Get<IDataService>();
-                (dataService as DataService).StoreFaviconUrlCache();
+                return;
             }
-            catch (Exception ex)
+
+            await Xamarin.Forms.Device.InvokeOnMainThreadAsync(async () =>
             {
-                App.LogError(ex);
-            }
+                const string DisclaimerMessage =
+                    "The display and use of flight maps and airspace data can contain errors " +
+                    "and their use does not release the pilot from the legal obligation of " +
+                    "thorough and orderly preflight planning, nor from the use of all required " +
+                    "and approved means of navigation (e.g. Aeronautical Chart ICAO 1:500,000).";
+
+                await Current.MainPage.DisplayAlert(
+                    Constants.AppTitle,
+                    DisclaimerMessage,
+                    "Understood");
+            });
+
+            appSettings.ShownFlightPlanningDisclaimer = true;
+            await dataService.StoreAppSettingsAsync(appSettings);
         }
 
         #region App lifecycle methods
@@ -429,7 +423,12 @@ namespace WhereToFly.App.Core
         /// </summary>
         protected override void OnStart()
         {
-            // Handle when your app starts
+            base.OnStart();
+
+            if (Settings != null)
+            {
+                ThemeHelper.ChangeTheme(Settings.AppTheme, true);
+            }
         }
 
         /// <summary>
@@ -437,9 +436,16 @@ namespace WhereToFly.App.Core
         /// </summary>
         protected override void OnSleep()
         {
-            // Handle when your app sleeps
-            StoreWeatherImageCache();
-            StoreFaviconUrlCache();
+            base.OnSleep();
+
+            var liveWaypointRefreshService = DependencyService.Get<LiveDataRefreshService>();
+            liveWaypointRefreshService.StopTimer();
+
+            Task.Run(async () =>
+            {
+                var geolocationService = DependencyService.Get<IGeolocationService>();
+                await geolocationService.StopListeningAsync();
+            });
         }
 
         /// <summary>
@@ -447,7 +453,21 @@ namespace WhereToFly.App.Core
         /// </summary>
         protected override void OnResume()
         {
-            // Handle when your app resumes
+            base.OnResume();
+
+            if (Settings != null)
+            {
+                ThemeHelper.ChangeTheme(Settings.AppTheme, true);
+            }
+
+            var liveWaypointRefreshService = DependencyService.Get<LiveDataRefreshService>();
+            liveWaypointRefreshService.ResumeTimer();
+
+            Task.Run(async () =>
+            {
+                var geolocationService = DependencyService.Get<IGeolocationService>();
+                await geolocationService.StartListeningAsync();
+            });
         }
         #endregion
     }

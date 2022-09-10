@@ -5,7 +5,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
-using WhereToFly.App.Core;
+using Xamarin.Essentials;
 using Xamarin.Forms.Platform.Android;
 
 namespace WhereToFly.App.Android
@@ -53,6 +53,17 @@ namespace WhereToFly.App.Android
         }
 
         /// <summary>
+        /// Constructor needed when the web view client is copied by Java
+        /// </summary>
+        /// <param name="javaReference">java reference</param>
+        /// <param name="transfer">ownership transfer value</param>
+        protected AndroidWebViewClient(IntPtr javaReference, global::Android.Runtime.JniHandleOwnership transfer)
+            : base(javaReference, transfer)
+        {
+            this.cacheFolder = GetCacheFolder();
+        }
+
+        /// <summary>
         /// Called when an error occured when receiving an URL; just forwards call to previous
         /// client.
         /// </summary>
@@ -91,10 +102,23 @@ namespace WhereToFly.App.Android
                 this.CorsWebsiteHosts != null &&
                 this.CorsWebsiteHosts.Any(x => host.Contains(x)))
             {
-                return this.BuildCorsResponse(request.Url.ToString());
+                var response = this.BuildCorsResponse(request.Url.ToString());
+                if (response != null)
+                {
+                    return response;
+                }
             }
 
-            return base.ShouldInterceptRequest(view, request);
+            // AppCenter infrequently reports an exception; try to fix this
+            try
+            {
+                return base.ShouldInterceptRequest(view, request);
+            }
+            catch (Exception ex)
+            {
+                Core.App.LogError(ex);
+                return null;
+            }
         }
 
         /// <summary>
@@ -105,6 +129,12 @@ namespace WhereToFly.App.Android
         /// <returns>newly created web resource response</returns>
         private WebResourceResponse BuildCorsResponse(string url)
         {
+            Stream stream = this.GetUrlContentStream(url);
+            if (stream == null)
+            {
+                return null;
+            }
+
             string date = DateTime.Now.ToUniversalTime().ToString("r");
             string domainName = "file://";
 
@@ -121,8 +151,6 @@ namespace WhereToFly.App.Android
                 { "Via", "1.1 vegur" },
             };
 
-            Stream stream = this.GetUrlContentStream(url);
-
             return new WebResourceResponse(
                 "text/plain",
                 "UTF-8",
@@ -138,7 +166,9 @@ namespace WhereToFly.App.Android
         /// folder.
         /// </summary>
         /// <param name="url">URL to fetch</param>
-        /// <returns>content stream</returns>
+        /// <returns>
+        /// content stream, or null when there was an error getting the content stream
+        /// </returns>
         private Stream GetUrlContentStream(string url)
         {
             int hashCode = url.GetHashCode();
@@ -178,9 +208,9 @@ namespace WhereToFly.App.Android
         /// <returns>file name of cache folder</returns>
         private static string GetCacheFolder()
         {
-            var platform = Xamarin.Forms.DependencyService.Get<IPlatform>();
-
-            string corsCacheFolder = Path.Combine(platform.CacheDataFolder, "cors-cache");
+            string corsCacheFolder = Path.Combine(
+                FileSystem.CacheDirectory,
+                "cors-cache");
 
             if (!Directory.Exists(corsCacheFolder))
             {

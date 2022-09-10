@@ -1,7 +1,7 @@
 ﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System;
 using System.IO;
-using WhereToFly.App.Geo.DataFormats;
+using WhereToFly.Geo.DataFormats;
 
 namespace WhereToFly.App.UnitTest.Geo
 {
@@ -73,6 +73,22 @@ namespace WhereToFly.App.UnitTest.Geo
 
             // check
             Assert.IsNotNull(igcFile, "loaded geo data file must not be null");
+        }
+
+        /// <summary>
+        /// Tests method GeoLoader.LoadGeoDataFile() to load .cup file
+        /// </summary>
+        [TestMethod]
+        public void TestLoadGetDataFileCup()
+        {
+            // set up
+            string filename = Path.Combine(UnitTestHelper.TestAssetsPath, "waypoints-variants.cup");
+
+            // run
+            var cupFile = GeoLoader.LoadGeoDataFile(filename);
+
+            // check
+            Assert.IsNotNull(cupFile, "loaded geo data file must not be null");
         }
 
         /// <summary>

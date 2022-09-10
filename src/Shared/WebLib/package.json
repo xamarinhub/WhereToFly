@@ -1,0 +1,52 @@
+{
+  "name": "wheretofly-weblib",
+  "version": "1.0.0",
+  "description": "Where-to-fly web library",
+  "sideEffects": false,
+  "exports": {
+    "./mapView.js": "./dist/js/WhereToFly.mapView.js",
+    "./mapView.css": "./dist/css/mapView.css",
+    "./heightProfileView.js": "./dist/js/WhereToFly.heightProfileView.js",
+    "./heightProfileView.css": "./dist/css/heightProfileView.css"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "webpack --config webpack.config.js",
+    "build-release": "webpack --config webpack.prod.config.js",
+    "build-es5": "webpack --config webpack.es5.config.js",
+    "build-es5-release": "webpack --config webpack.es5.prod.config.js",
+    "serve": "webpack serve",
+    "watch": "webpack --watch"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vividos/WhereToFly.git"
+  },
+  "author": "vividos",
+  "license": "BSD-3-Clause",
+  "devDependencies": {
+    "@babel/cli": "^7.18.10",
+    "@babel/core": "^7.18.10",
+    "@babel/preset-env": "^7.18.10",
+    "babel-loader": "^8.2.5",
+    "copy-webpack-plugin": "^11.0.0",
+    "css-loader": "^6.7.1",
+    "css-minimizer-webpack-plugin": "^4.0.0",
+    "html-webpack-plugin": "^5.5.0",
+    "mini-css-extract-plugin": "^2.6.1",
+    "strip-pragma-loader": "^1.0.1",
+    "terser-webpack-plugin": "^5.3.3",
+    "webpack": "^5.74.0",
+    "webpack-cli": "^4.10.0",
+    "webpack-dev-server": "^4.9.3"
+  },
+  "dependencies": {
+    "cesium": "^1.97.0",
+    "chart.js": "^3.9.1",
+    "chartjs-adapter-moment": "^1.0.0",
+    "chartjs-plugin-crosshair": "^1.2.0",
+    "chartjs-plugin-zoom": "^1.2.1",
+    "core-js": "^3.24.1",
+    "moment": "^2.29.4"
+  }
+}

@@ -6,13 +6,14 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using WhereToFly.App.Core.Logic;
 using WhereToFly.App.Core.Services;
 using WhereToFly.App.Core.Views;
-using WhereToFly.App.Geo;
-using WhereToFly.App.Geo.DataFormats;
-using WhereToFly.App.Geo.Spatial;
-using WhereToFly.App.Model;
-using WhereToFly.Shared.Model;
+using WhereToFly.Geo;
+using WhereToFly.Geo.Airspace;
+using WhereToFly.Geo.DataFormats;
+using WhereToFly.Geo.DataFormats.Czml;
+using WhereToFly.Geo.Model;
 using Xamarin.Forms;
 
 namespace WhereToFly.App.Core
@@ -28,7 +29,7 @@ namespace WhereToFly.App.Core
         private static WaitingPopupPage waitingDialog;
 
         /// <summary>
-        /// Opens file from given stream
+        /// Opens file from given stream.
         /// </summary>
         /// <param name="stream">stream object</param>
         /// <param name="filename">
@@ -40,6 +41,12 @@ namespace WhereToFly.App.Core
             if (Path.GetExtension(filename).ToLowerInvariant() == ".czml")
             {
                 await ImportLayerFile(stream, filename);
+                return;
+            }
+
+            if (Path.GetExtension(filename).ToLowerInvariant() == ".txt")
+            {
+                await ImportOpenAirAirspaceFile(stream, filename);
                 return;
             }
 
@@ -86,6 +93,29 @@ namespace WhereToFly.App.Core
         }
 
         /// <summary>
+        /// Adds (or replaces) the default location list
+        /// </summary>
+        /// <returns>task to wait on</returns>
+        public static async Task AddDefaultLocationListAsync()
+        {
+            try
+            {
+                var locationList = DataServiceHelper.GetDefaultLocationList();
+
+                await ImportLocationListAsync(locationList);
+            }
+            catch (Exception ex)
+            {
+                App.LogError(ex);
+
+                await App.Current.MainPage.DisplayAlert(
+                    Constants.AppTitle,
+                    "Error while loading default locations: " + ex.Message,
+                    "OK");
+            }
+        }
+
+        /// <summary>
         /// Opens and load location list from given stream object
         /// </summary>
         /// <param name="stream">stream object</param>
@@ -126,8 +156,6 @@ namespace WhereToFly.App.Core
                     Constants.AppTitle,
                     "Error while loading locations: " + ex.Message,
                     "OK");
-
-                return;
             }
             finally
             {
@@ -206,28 +234,111 @@ namespace WhereToFly.App.Core
         /// <returns>task to wait on</returns>
         private static async Task ImportLocationListAsync(List<Location> locationList)
         {
+            SanitizeLocationDescriptions(locationList);
+            AddTakeoffDirections(locationList);
+
             var dataService = DependencyService.Get<IDataService>();
+            var locationDataService = dataService.GetLocationDataService();
 
-            var currentList = await dataService.GetLocationListAsync(CancellationToken.None);
-
-            if (currentList.Any())
+            bool isListEmpty = await locationDataService.IsListEmpty();
+            if (!isListEmpty)
             {
                 bool appendToList = await AskAppendToList();
 
-                if (appendToList)
+                if (!appendToList)
                 {
-                    locationList.InsertRange(0, currentList);
+                    await locationDataService.ClearList();
+                    App.MapView.ClearLocationList();
                 }
             }
 
-            await dataService.StoreLocationListAsync(locationList);
+            await locationDataService.AddList(locationList);
 
-            var liveWaypointRefreshService = DependencyService.Get<LiveWaypointRefreshService>();
-            liveWaypointRefreshService.UpdateLiveWaypointList(locationList);
+            var liveWaypointRefreshService = DependencyService.Get<LiveDataRefreshService>();
+            liveWaypointRefreshService.ClearLiveWaypointList();
+            liveWaypointRefreshService.AddLiveWaypointList(locationList);
+
+            await NavigationService.GoToMap();
 
             App.ShowToast("Locations were loaded.");
 
-            App.UpdateMapLocationsList();
+            App.MapView.AddLocationList(locationList);
+
+            ZoomToLocationList(locationList);
+        }
+
+        /// <summary>
+        /// Sanitizes all descriptions of all locations in the list
+        /// </summary>
+        /// <param name="locationList">location list</param>
+        private static void SanitizeLocationDescriptions(List<Location> locationList)
+        {
+            foreach (var location in locationList)
+            {
+                location.Description = HtmlConverter.Sanitize(location.Description);
+            }
+        }
+
+        /// <summary>
+        /// Adds takeoff directions value to every location in the list
+        /// </summary>
+        /// <param name="locationList">location list to modify</param>
+        private static void AddTakeoffDirections(List<Location> locationList)
+        {
+            foreach (var location in locationList)
+            {
+                if (TakeoffDirectionsHelper.TryParse(location.Name, out TakeoffDirections takeoffDirections))
+                {
+                    location.TakeoffDirections = takeoffDirections;
+                }
+                else if (TryParseStartDirectionFromDescription(location.Description, out TakeoffDirections takeoffDirections2))
+                {
+                    location.TakeoffDirections = takeoffDirections2;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Tries to parse a start direction from given location description. Some locations, e.g.
+        /// from the DHV Geländedatenbank, have the start directions in the description, after a
+        /// certain text.
+        /// </summary>
+        /// <param name="description">location description</param>
+        /// <param name="takeoffDirections">parsed takeoff directions</param>
+        /// <returns>true when a takeoff direction could be parsed, or false when not</returns>
+        private static bool TryParseStartDirectionFromDescription(string description, out TakeoffDirections takeoffDirections)
+        {
+            takeoffDirections = TakeoffDirections.None;
+
+            const string StartDirectionText = "Startrichtung ";
+            int posStartDirection = description.IndexOf(StartDirectionText);
+            if (posStartDirection == -1)
+            {
+                return false;
+            }
+
+            int posLineBreak = description.IndexOf("<br", posStartDirection);
+            if (posLineBreak == -1)
+            {
+                posLineBreak = description.Length;
+            }
+
+            posStartDirection += StartDirectionText.Length;
+
+            string direction = description.Substring(posStartDirection, posLineBreak - posStartDirection);
+
+            return TakeoffDirectionsHelper.TryParse(direction, out takeoffDirections);
+        }
+
+        /// <summary>
+        /// Zooms to location list
+        /// </summary>
+        /// <param name="locationList">list of all locations</param>
+        private static void ZoomToLocationList(List<Location> locationList)
+        {
+            locationList.GetBoundingRectangle(out MapPoint minLocation, out MapPoint maxLocation);
+
+            App.MapView.ZoomToRectangle(minLocation, maxLocation);
         }
 
         /// <summary>
@@ -284,6 +395,8 @@ namespace WhereToFly.App.Core
                 return false;
             }
 
+            track.Description = HtmlConverter.Sanitize(track.Description);
+
             track.CalculateStatistics();
 
             await CloseWaitingPopupPageAsync();
@@ -298,18 +411,22 @@ namespace WhereToFly.App.Core
             // the ground
             if (track.IsFlightTrack)
             {
-                await SampleTrackHeightsAsync(track);
+                await AdjustTrackHeightsAsync(track);
             }
 
             var dataService = DependencyService.Get<IDataService>();
+            var trackDataService = dataService.GetTrackDataService();
 
-            var currentList = await dataService.GetTrackListAsync(CancellationToken.None);
-            currentList.Add(track);
+            await trackDataService.Add(track);
 
-            await dataService.StoreTrackListAsync(currentList);
+            if (track.IsLiveTrack)
+            {
+                var liveWaypointRefreshService = DependencyService.Get<LiveDataRefreshService>();
+                liveWaypointRefreshService.AddLiveTrack(track);
+            }
 
-            App.AddMapTrack(track);
-            App.ZoomToTrack(track);
+            await App.AddTrack(track);
+            App.MapView.ZoomToTrack(track);
 
             App.ShowToast("Track was loaded.");
 
@@ -317,18 +434,35 @@ namespace WhereToFly.App.Core
         }
 
         /// <summary>
-        /// Samples track point heights and adjust track
+        /// Samples track point heights and adjusts the track when it goes below terrain height.
         /// </summary>
-        /// <param name="track">track to sample point heights</param>
+        /// <param name="track">track to adjust point heights</param>
         /// <returns>task to wait on</returns>
-        private static async Task SampleTrackHeightsAsync(Track track)
+        private static async Task AdjustTrackHeightsAsync(Track track)
         {
-            waitingDialog = new WaitingPopupPage("Sampling track point heights...");
-            App.RunOnUiThread(async () => await waitingDialog.ShowAsync());
+            var cts = new CancellationTokenSource();
 
+            waitingDialog = new WaitingPopupPage("Sampling track point heights...", cts);
+            await App.RunOnUiThreadAsync(async () => await waitingDialog.ShowAsync());
+
+            await App.InitializedTask;
             try
             {
-                await App.SampleTrackHeightsAsync(track, 0.0);
+                var trackPointHeights =
+                    await Task.Run(
+                        async () => await App.MapView.SampleTrackHeights(track),
+                        cts.Token);
+
+                if (cts.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                if (trackPointHeights != null)
+                {
+                    track.GroundHeightProfile = trackPointHeights.ToList();
+                    track.AdjustTrackPointsByGroundProfile(trackPointHeights);
+                }
             }
             finally
             {
@@ -349,7 +483,7 @@ namespace WhereToFly.App.Core
             var choices = new string[2]
                 {
                     "Import Locations",
-                    "Import Tracks"
+                    "Import Tracks",
                 };
 
             string choice = await App.Current.MainPage.DisplayActionSheet(
@@ -391,7 +525,7 @@ namespace WhereToFly.App.Core
         }
 
         /// <summary>
-        /// Imports a layer file
+        /// Imports a .czml layer file
         /// </summary>
         /// <param name="stream">stream to read from</param>
         /// <param name="filename">filename of file</param>
@@ -404,6 +538,90 @@ namespace WhereToFly.App.Core
                 czml = streamReader.ReadToEnd();
             }
 
+            await AddLayerFromCzml(czml, filename, string.Empty);
+        }
+
+        /// <summary>
+        /// Imports a .txt OpenAir airspace file and adds it as layer
+        /// </summary>
+        /// <param name="stream">stream of file to import</param>
+        /// <param name="filename">filename of file to import</param>
+        /// <returns>task to wait on</returns>
+        public static async Task ImportOpenAirAirspaceFile(Stream stream, string filename)
+        {
+            try
+            {
+                var parser = new OpenAirFileParser(stream);
+
+                var filteredAirspaces = await SelectAirspaceClassesToImport(parser.Airspaces);
+                if (!filteredAirspaces.Any())
+                {
+                    return;
+                }
+
+                string czml = CzmlAirspaceWriter.WriteCzml(
+                    Path.GetFileNameWithoutExtension(filename),
+                    filteredAirspaces,
+                    parser.FileCommentLines);
+
+                string fileComments = string.Join("\n", parser.FileCommentLines);
+
+                if (parser.ParsingErrors.Any())
+                {
+                    fileComments += "\nParsing errors:\n";
+                    fileComments +=
+                        string.Join("\n", parser.ParsingErrors);
+                }
+
+                string description =
+                    fileComments
+                    .Replace("\n\n", "\n")
+                    .Trim();
+
+                await AddLayerFromCzml(czml, filename, description);
+            }
+            catch (Exception ex)
+            {
+                App.LogError(ex);
+
+                await App.Current.MainPage.DisplayAlert(
+                    Constants.AppTitle,
+                    $"Error while loading OpenAir airspaces: {ex.Message}",
+                    "OK");
+            }
+        }
+
+        /// <summary>
+        /// Filters airspaces list by letting the user select all airspace classes that should be
+        /// imported.
+        /// </summary>
+        /// <param name="airspacesList">list of all airspaces</param>
+        /// <returns>filtered list of all airspaces</returns>
+        private static async Task<IEnumerable<Airspace>> SelectAirspaceClassesToImport(IEnumerable<Airspace> airspacesList)
+        {
+            var airspaceClasses = airspacesList.Select(airspace => airspace.Class).Distinct();
+
+            var selectedAirspaceClasses = await SelectAirspaceClassPopupPage.ShowAsync(airspaceClasses);
+            if (selectedAirspaceClasses == null)
+            {
+                return Enumerable.Empty<Airspace>();
+            }
+
+            var filteredAirspaces = airspacesList.Where(
+                airspace => selectedAirspaceClasses.Contains(airspace.Class));
+
+            return filteredAirspaces;
+        }
+
+        /// <summary>
+        /// Adds a new layer from given CZML text
+        /// </summary>
+        /// <param name="czml">loaded CZML text</param>
+        /// <param name="filename">filename of loaded file</param>
+        /// <param name="fileDescription">layer file's description</param>
+        /// <returns>task to wait on</returns>
+        private static async Task AddLayerFromCzml(string czml, string filename, string fileDescription)
+        {
             if (!IsValidJson(czml))
             {
                 await App.Current.MainPage.DisplayAlert(
@@ -414,16 +632,27 @@ namespace WhereToFly.App.Core
                 return;
             }
 
+            ReadCzmlNameAndDescription(czml, out string name, out string description);
+
+            if (string.IsNullOrEmpty(name))
+            {
+                name = Path.GetFileNameWithoutExtension(filename);
+            }
+
             var layer = new Layer
             {
                 Id = Guid.NewGuid().ToString("B"),
-                Name = Path.GetFileNameWithoutExtension(filename),
+                Name = name,
+                Description = HtmlConverter.Sanitize(description + fileDescription),
                 IsVisible = true,
                 LayerType = LayerType.CzmlLayer,
-                Data = czml
+                Data = czml,
             };
 
-            layer = await AddLayerPopupPage.ShowAsync(layer);
+            layer = await NavigationService.Instance.NavigateToPopupPageAsync<Layer>(
+                PopupPageKey.AddLayerPopupPage,
+                true,
+                layer);
 
             if (layer == null)
             {
@@ -431,17 +660,44 @@ namespace WhereToFly.App.Core
             }
 
             var dataService = DependencyService.Get<IDataService>();
+            var layerDataService = dataService.GetLayerDataService();
 
-            var layerList = await dataService.GetLayerListAsync(CancellationToken.None);
-            layerList.Add(layer);
-            await dataService.StoreLayerListAsync(layerList);
+            await layerDataService.Add(layer);
 
-            await NavigationService.Instance.NavigateAsync(Constants.PageKeyMapPage, animated: true);
+            await App.ShowFlightPlanningDisclaimerAsync();
 
-            App.AddMapLayer(layer);
-            App.ZoomToLayer(layer);
+            await NavigationService.GoToMap();
+
+            App.MapView.AddLayer(layer);
+            App.MapView.ZoomToLayer(layer);
 
             App.ShowToast("Layer was loaded.");
+        }
+
+        /// <summary>
+        /// Reads name and description fields from the CZML file's packet header, if present.
+        /// </summary>
+        /// <param name="czml">CZML JSON text</param>
+        /// <param name="name">document name to read</param>
+        /// <param name="description">document description to read</param>
+        private static void ReadCzmlNameAndDescription(string czml, out string name, out string description)
+        {
+            var rootArray = JArray.Parse(czml);
+            if (rootArray.Count > 0)
+            {
+                var headerObject = rootArray[0].ToObject<PacketHeader>();
+                if (headerObject != null &&
+                    headerObject.Id == "document")
+                {
+                    name = headerObject.Name;
+                    description = headerObject.Description;
+
+                    return;
+                }
+            }
+
+            name = string.Empty;
+            description = string.Empty;
         }
 
         /// <summary>
@@ -452,8 +708,10 @@ namespace WhereToFly.App.Core
         private static bool IsValidJson(string json)
         {
             json = json.Trim();
-            if ((!json.StartsWith("{") || !json.EndsWith("}")) && // for object
-                (!json.StartsWith("[") || !json.EndsWith("]"))) // for array
+
+            // check for object or array syntax
+            if ((!json.StartsWith("{") || !json.EndsWith("}")) &&
+                (!json.StartsWith("[") || !json.EndsWith("]")))
             {
                 return false;
             }

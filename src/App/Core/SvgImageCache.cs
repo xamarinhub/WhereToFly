@@ -1,13 +1,10 @@
-﻿using FFImageLoading.Svg.Forms;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using WhereToFly.App.Geo;
-using WhereToFly.App.Model;
-using WhereToFly.Shared.Model;
+using WhereToFly.Geo.Model;
 using Xamarin.Forms;
 
-[assembly: Dependency(typeof(WhereToFly.App.Core.SvgImageCache))]
+#pragma warning disable S4136 // All 'GetImageSource' method overloads should be adjacent.
 
 namespace WhereToFly.App.Core
 {
@@ -19,62 +16,77 @@ namespace WhereToFly.App.Core
         /// <summary>
         /// All SVG images in the cache
         /// </summary>
-        private readonly Dictionary<string, string> allImages = new Dictionary<string, string>();
+        private readonly Dictionary<string, string> allImages = new();
 
         /// <summary>
         /// Returns an image source for SvgImage that loads an image based on the location's type.
         /// </summary>
         /// <param name="location">location to use</param>
-        /// <param name="fill">when not null, an alternative fill color for SVG path elements</param>
         /// <returns>image source</returns>
-        public static ImageSource GetImageSource(Location location, string fill = null)
+        public static ImageSource GetImageSource(Location location)
         {
+            if (location == null)
+            {
+                return null;
+            }
+
             return GetImageSource(
-                SvgImagePathFromLocationType(location.Type),
-                fill);
+                SvgImagePathFromLocationType(location.Type));
         }
 
         /// <summary>
         /// Returns an image source for SvgImage that loads an image based on the track.
         /// </summary>
         /// <param name="track">track to use</param>
-        /// <param name="fill">when not null, an alternative fill color for SVG path elements</param>
         /// <returns>image source</returns>
-        public static ImageSource GetImageSource(Track track, string fill = null)
+        public static ImageSource GetImageSource(Track track)
         {
-            string svgImagePath = track.IsFlightTrack ? "map/images/paragliding.svg" : "icons/map-marker-distance.svg";
+            string svgImagePath = track.IsFlightTrack
+                ? "weblib/images/paragliding.svg"
+                : "icons/map-marker-distance.svg";
 
-            return GetImageSource(svgImagePath, fill);
+            return GetImageSource(svgImagePath);
         }
 
         /// <summary>
         /// Returns an image source for SvgImage that loads an image based on the given layer.
         /// </summary>
         /// <param name="layer">layer to use</param>
-        /// <param name="fill">when not null, an alternative fill color for SVG path elements</param>
         /// <returns>image source</returns>
-        public static ImageSource GetImageSource(Layer layer, string fill = null)
+        public static ImageSource GetImageSource(Layer layer)
         {
-            string svgImagePath =
-                layer.LayerType == LayerType.LocationLayer ? "icons/format-list-bulleted.svg" :
-                layer.LayerType == LayerType.LocationLayer ? "icons/map-marker-distance.svg" :
-                "icons/layers-outline.svg";
+            string svgImagePath = ImagePathFromLayerType(layer.LayerType);
 
-            return GetImageSource(svgImagePath, fill);
+            return GetImageSource(svgImagePath);
+        }
+
+        /// <summary>
+        /// Returns SVG image path from layer type
+        /// </summary>
+        /// <param name="layerType">layer type</param>
+        /// <returns>SVG image path</returns>
+        private static string ImagePathFromLayerType(LayerType layerType)
+        {
+            return layerType switch
+            {
+                LayerType.LocationLayer => "icons/format-list-bulleted.svg",
+                LayerType.TrackLayer => "icons/map-marker-distance.svg",
+                _ => "icons/layers-outline.svg",
+            };
         }
 
         /// <summary>
         /// Returns an image source for the visibility of the given layer.
         /// </summary>
         /// <param name="layer">layer to use</param>
-        /// <param name="fill">when not null, an alternative fill color for SVG path elements</param>
         /// <returns>image source</returns>
-        public static ImageSource GetLayerVisibilityImageSource(Layer layer, string fill = null)
+        public static ImageSource GetLayerVisibilityImageSource(Layer layer)
         {
-            string svgImagePath =
-                layer.IsVisible ? "icons/eye.svg" : "icons/eye-off-outline.svg";
+            string svgImagePath = layer.IsVisible
+                ? "icons/eye.svg"
+                : "icons/eye-off-outline.svg";
 
-            return GetImageSource(svgImagePath, fill);
+            return GetImageSource(svgImagePath);
         }
 
         /// <summary>
@@ -82,25 +94,23 @@ namespace WhereToFly.App.Core
         /// name.
         /// </summary>
         /// <param name="svgImageName">relative path to the SVG image file</param>
-        /// <param name="fill">when not null, an alternative fill color for SVG path elements</param>
         /// <returns>image source</returns>
-        public static ImageSource GetImageSource(string svgImageName, string fill = null)
+        public static ImageSource GetImageSource(string svgImageName)
         {
             var cache = DependencyService.Get<SvgImageCache>();
             Debug.Assert(cache != null, "cache object must exist");
 
-            string svgText = cache.GetSvgImage(svgImageName, fill);
+            string svgText = cache.GetSvgImage(svgImageName);
 
-            return SvgImageSource.FromSvgString(svgText);
+            return ImageSource.FromUri(new Uri(Controls.SvgConstants.DataUriPlainPrefix + svgText));
         }
 
         /// <summary>
         /// Returns an SVG image xml text from an image path
         /// </summary>
         /// <param name="imagePath">image path</param>
-        /// <param name="fill">when not null, an alternative fill color for SVG path elements</param>
         /// <returns>SVG image xml text, or </returns>
-        public string GetSvgImage(string imagePath, string fill = null)
+        public string GetSvgImage(string imagePath)
         {
             if (this.allImages.ContainsKey(imagePath))
             {
@@ -117,11 +127,6 @@ namespace WhereToFly.App.Core
             catch (Exception)
             {
                 // ignore load errors
-            }
-
-            if (svgText != null && fill != null)
-            {
-                svgText = this.ReplaceSvgPathFillValue(svgText, fill);
             }
 
             this.AddImage(imagePath, svgText);
@@ -146,68 +151,32 @@ namespace WhereToFly.App.Core
         /// <returns>SVG image path</returns>
         private static string SvgImagePathFromLocationType(LocationType locationType)
         {
-            switch (locationType)
+            return locationType switch
             {
-                case LocationType.Summit:
-                    return "map/images/mountain-15.svg";
-                case LocationType.Lake:
-                    return "map/images/water-15.svg";
-                case LocationType.Bridge:
-                    return "map/images/bridge.svg";
-                case LocationType.Viewpoint:
-                    return "map/images/attraction-15.svg";
-                case LocationType.AlpineHut:
-                    return "map/images/home-15.svg";
-                case LocationType.Restaurant:
-                    return "map/images/restaurant-15.svg";
-                case LocationType.Church:
-                    return "map/images/church.svg";
-                case LocationType.Castle:
-                    return "map/images/castle.svg";
-                case LocationType.Information:
-                    return "map/images/information-outline.svg";
-                case LocationType.PublicTransportBus:
-                    return "map/images/bus.svg";
-                case LocationType.PublicTransportTrain:
-                    return "map/images/train.svg";
-                case LocationType.Parking:
-                    return "map/images/parking.svg";
-                case LocationType.CableCar:
-                    return "map/images/aerialway-15.svg";
-                case LocationType.FlyingTakeoff:
-                    return "map/images/paragliding.svg";
-                case LocationType.FlyingLandingPlace:
-                    return "map/images/paragliding.svg";
-                case LocationType.FlyingWinchTowing:
-                    return "map/images/paragliding.svg";
-                default:
-                    return "map/images/map-marker.svg";
-            }
-        }
-
-        /// <summary>
-        /// Replaces path fill attributes in an SVG image text, e.g. to re-colorize the image.
-        /// </summary>
-        /// <param name="svgText">SVG image text</param>
-        /// <param name="fillValue">fill value to replace, e.g. #000000</param>
-        /// <returns>new SVG image text</returns>
-        private string ReplaceSvgPathFillValue(string svgText, string fillValue)
-        {
-            int pos = 0;
-            while ((pos = svgText.IndexOf("<path fill=", pos)) != -1)
-            {
-                char openingQuote = svgText[pos + 11];
-                int endPos = svgText.IndexOf(openingQuote, pos + 11 + 1);
-
-                if (endPos != -1)
-                {
-                    svgText = svgText.Substring(0, pos + 11) + openingQuote + fillValue + svgText.Substring(endPos);
-                }
-
-                pos += 11;
-            }
-
-            return svgText;
+                LocationType.Summit => "weblib/images/mountain-15.svg",
+                LocationType.Pass => "weblib/images/mountain-pass.svg",
+                LocationType.Lake => "weblib/images/water-15.svg",
+                LocationType.Bridge => "weblib/images/bridge.svg",
+                LocationType.Viewpoint => "weblib/images/attraction-15.svg",
+                LocationType.AlpineHut => "weblib/images/home-15.svg",
+                LocationType.Restaurant => "weblib/images/restaurant-15.svg",
+                LocationType.Church => "weblib/images/church.svg",
+                LocationType.Castle => "weblib/images/castle.svg",
+                LocationType.Cave => "weblib/images/cave.svg",
+                LocationType.Information => "weblib/images/information-outline.svg",
+                LocationType.PublicTransportBus => "weblib/images/bus.svg",
+                LocationType.PublicTransportTrain => "weblib/images/train.svg",
+                LocationType.Parking => "weblib/images/parking.svg",
+                LocationType.Webcam => "weblib/images/camera-outline.svg",
+                LocationType.CableCar => "weblib/images/aerialway-15.svg",
+                LocationType.FlyingTakeoff => "weblib/images/paragliding.svg",
+                LocationType.FlyingLandingPlace => "weblib/images/paragliding.svg",
+                LocationType.FlyingWinchTowing => "weblib/images/paragliding.svg",
+                LocationType.LiveWaypoint => "weblib/images/autorenew.svg",
+                LocationType.Thermal => "weblib/images/cloud-upload-outline-modified.svg",
+                LocationType.MeteoStation => "weblib/images/weather-partly-cloudy.svg",
+                _ => "weblib/images/map-marker.svg",
+            };
         }
     }
 }

@@ -1,8 +1,9 @@
 ﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System;
+using WhereToFly.App.Core;
 using WhereToFly.App.Core.ViewModels;
-using WhereToFly.App.Model;
-using WhereToFly.Shared.Model;
+using WhereToFly.Geo.Model;
+using Xamarin.Forms;
 
 namespace WhereToFly.App.UnitTest.ViewModels
 {
@@ -19,6 +20,10 @@ namespace WhereToFly.App.UnitTest.ViewModels
         public void SetUp()
         {
             Xamarin.Forms.Mocks.MockForms.Init();
+            DependencyService.Register<SvgImageCache>();
+
+            var imageCache = DependencyService.Get<SvgImageCache>();
+            imageCache.AddImage("weblib/images/mountain-15.svg", string.Empty);
         }
 
         /// <summary>
@@ -35,7 +40,7 @@ namespace WhereToFly.App.UnitTest.ViewModels
                 MapLocation = new MapPoint(47.6764385, 11.8710533, 1685.0),
                 Description = "Herrliche Aussicht über die drei Seen Schliersee im Norden, Tegernsee im Westen und den Spitzingsee im Süden.",
                 Type = LocationType.Summit,
-                InternetLink = "https://de.wikipedia.org/wiki/Brecherspitz"
+                InternetLink = "https://de.wikipedia.org/wiki/Brecherspitz",
             };
 
             var viewModel = new LocationListEntryViewModel(null, location, null);

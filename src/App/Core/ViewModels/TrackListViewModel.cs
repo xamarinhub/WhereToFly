@@ -1,13 +1,12 @@
-﻿using Plugin.FilePicker;
-using Plugin.FilePicker.Abstractions;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
-using System.Threading;
 using System.Threading.Tasks;
+using System.Windows.Input;
 using WhereToFly.App.Core.Services;
-using WhereToFly.App.Geo;
+using WhereToFly.Geo.Model;
+using Xamarin.CommunityToolkit.ObjectModel;
 using Xamarin.Forms;
 
 namespace WhereToFly.App.Core.ViewModels
@@ -20,7 +19,7 @@ namespace WhereToFly.App.Core.ViewModels
         /// <summary>
         /// Track list
         /// </summary>
-        private List<Track> trackList = new List<Track>();
+        private List<Track> trackList = new();
 
         /// <summary>
         /// Backing field for "IsListRefreshActive" property
@@ -57,6 +56,11 @@ namespace WhereToFly.App.Core.ViewModels
         }
 
         /// <summary>
+        /// Stores the selected track when an item is tapped
+        /// </summary>
+        public TrackListEntryViewModel SelectedTrack { get; set; }
+
+        /// <summary>
         /// Indicates if the "delete track" button is enabled.
         /// </summary>
         public bool IsDeleteTrackEnabled
@@ -68,17 +72,12 @@ namespace WhereToFly.App.Core.ViewModels
         /// <summary>
         /// Command to execute when toolbar button "import track" has been tapped
         /// </summary>
-        public Command ImportTrackCommand { get; private set; }
+        public ICommand ImportTrackCommand { get; private set; }
 
         /// <summary>
         /// Command to execute when toolbar button "delete track list" has been tapped
         /// </summary>
-        public Command DeleteTrackListCommand { get; private set; }
-
-        /// <summary>
-        /// Command to execute when an item in the track list has been tapped
-        /// </summary>
-        public Command<Track> ItemTappedCommand { get; private set; }
+        public AsyncCommand DeleteTrackListCommand { get; private set; }
         #endregion
 
         /// <summary>
@@ -96,26 +95,16 @@ namespace WhereToFly.App.Core.ViewModels
         /// </summary>
         private void SetupBindings()
         {
+            this.IsListRefreshActive = true;
+            this.OnPropertyChanged(nameof(this.IsListEmpty));
+
             Task.Run(this.ReloadTrackListAsync);
 
-            this.ImportTrackCommand =
-                new Command(async () =>
-                {
-                    await this.ImportTrackAsync();
-                });
+            this.ImportTrackCommand = new AsyncCommand(this.ImportTrackAsync);
 
-            this.DeleteTrackListCommand = new Command(
-                async () =>
-                {
-                    await this.ClearTracksAsync();
-                },
-                () => this.IsDeleteTrackEnabled);
-
-            this.ItemTappedCommand =
-                new Command<Track>(async (track) =>
-                {
-                    await this.NavigateToTrackDetails(track);
-                });
+            this.DeleteTrackListCommand = new AsyncCommand(
+                this.ClearTracksAsync,
+                (obj) => this.IsDeleteTrackEnabled);
         }
 
         /// <summary>
@@ -127,8 +116,9 @@ namespace WhereToFly.App.Core.ViewModels
             try
             {
                 IDataService dataService = DependencyService.Get<IDataService>();
+                var trackDataService = dataService.GetTrackDataService();
 
-                this.trackList = await dataService.GetTrackListAsync(CancellationToken.None);
+                this.trackList = (await trackDataService.GetList()).ToList();
             }
             catch (Exception ex)
             {
@@ -142,20 +132,22 @@ namespace WhereToFly.App.Core.ViewModels
         private void UpdateTrackList()
         {
             this.IsListRefreshActive = true;
+            this.OnPropertyChanged(nameof(this.IsListEmpty));
 
-            this.DeleteTrackListCommand.ChangeCanExecute();
+            this.DeleteTrackListCommand.RaiseCanExecuteChanged();
 
             var newList = this.trackList
                 .Select(track => new TrackListEntryViewModel(this, track));
 
             this.TrackList = new ObservableCollection<TrackListEntryViewModel>(newList);
 
-            this.OnPropertyChanged(nameof(this.TrackList));
-            this.OnPropertyChanged(nameof(this.IsListEmpty));
-
             this.IsListRefreshActive = false;
 
-            this.DeleteTrackListCommand.ChangeCanExecute();
+            this.OnPropertyChanged(nameof(this.TrackList));
+            this.OnPropertyChanged(nameof(this.IsListRefreshActive));
+            this.OnPropertyChanged(nameof(this.IsListEmpty));
+
+            this.DeleteTrackListCommand.RaiseCanExecuteChanged();
         }
 
         /// <summary>
@@ -165,7 +157,10 @@ namespace WhereToFly.App.Core.ViewModels
         /// <returns>task to wait on</returns>
         internal async Task NavigateToTrackDetails(Track track)
         {
-            await NavigationService.Instance.NavigateAsync(Constants.PageKeyTrackDetailsPage, true, track);
+            this.SelectedTrack = null;
+            this.OnPropertyChanged(nameof(this.SelectedTrack));
+
+            await NavigationService.Instance.NavigateAsync(PageKey.TrackInfoPage, true, track);
         }
 
         /// <summary>
@@ -175,9 +170,19 @@ namespace WhereToFly.App.Core.ViewModels
         /// <returns>task to wait on</returns>
         internal async Task ZoomToTrack(Track track)
         {
-            App.ZoomToTrack(track);
+            App.MapView.ZoomToTrack(track);
 
-            await NavigationService.Instance.NavigateAsync(Constants.PageKeyMapPage, animated: true);
+            await NavigationService.GoToMap();
+        }
+
+        /// <summary>
+        /// Called when "Export" menu item is selected
+        /// </summary>
+        /// <param name="track">track to export</param>
+        /// <returns>task to wait on</returns>
+        internal async Task ExportTrack(Track track)
+        {
+            await ExportFileHelper.ExportTrackAsync(track);
         }
 
         /// <summary>
@@ -190,11 +195,19 @@ namespace WhereToFly.App.Core.ViewModels
             this.trackList.Remove(track);
 
             var dataService = DependencyService.Get<IDataService>();
-            await dataService.StoreTrackListAsync(this.trackList);
+            var trackDataService = dataService.GetTrackDataService();
+
+            await trackDataService.Remove(track.Id);
+
+            if (track.IsLiveTrack)
+            {
+                var liveWaypointRefreshService = DependencyService.Get<LiveDataRefreshService>();
+                liveWaypointRefreshService.RemoveLiveTrack(track.Id);
+            }
 
             this.UpdateTrackList();
 
-            App.UpdateMapTracksList();
+            App.MapView.RemoveTrack(track);
 
             App.ShowToast("Selected track was deleted.");
         }
@@ -217,11 +230,16 @@ namespace WhereToFly.App.Core.ViewModels
             }
 
             var dataService = DependencyService.Get<IDataService>();
-            await dataService.StoreTrackListAsync(new List<Track>());
+            var trackDataService = dataService.GetTrackDataService();
+
+            await trackDataService.ClearList();
+
+            var liveWaypointRefreshService = DependencyService.Get<LiveDataRefreshService>();
+            liveWaypointRefreshService.ClearLiveWaypointList();
 
             await this.ReloadTrackListAsync();
 
-            App.UpdateMapTracksList();
+            App.MapView.ClearAllTracks();
 
             App.ShowToast("Track list was cleared.");
         }
@@ -242,22 +260,31 @@ namespace WhereToFly.App.Core.ViewModels
         /// <returns>task to wait on</returns>
         private async Task ImportTrackAsync()
         {
-            FileData result = null;
+            bool success = false;
+
             try
             {
-                string[] fileTypes = null;
-
-                if (Device.RuntimePlatform == Device.UWP)
+                var options = new Xamarin.Essentials.PickOptions
                 {
-                    fileTypes = new string[] { ".kml", ".kmz", ".gpx", ".igc" };
-                }
+                    FileTypes = new Xamarin.Essentials.FilePickerFileType(
+                        new Dictionary<Xamarin.Essentials.DevicePlatform, IEnumerable<string>>
+                        {
+                            { Xamarin.Essentials.DevicePlatform.Android, null },
+                            { Xamarin.Essentials.DevicePlatform.UWP, new string[] { ".kml", ".kmz", ".gpx", ".igc" } },
+                            { Xamarin.Essentials.DevicePlatform.iOS, null },
+                        }),
+                    PickerTitle = "Select a Track file to import",
+                };
 
-                result = await CrossFilePicker.Current.PickFile(fileTypes);
+                var result = await Xamarin.Essentials.FilePicker.PickAsync(options);
                 if (result == null ||
-                    string.IsNullOrEmpty(result.FilePath))
+                    string.IsNullOrEmpty(result.FullPath))
                 {
                     return;
                 }
+
+                using var stream = await result.OpenReadAsync();
+                success = await OpenFileHelper.OpenTrackAsync(stream, result.FileName);
             }
             catch (Exception ex)
             {
@@ -269,13 +296,6 @@ namespace WhereToFly.App.Core.ViewModels
                     "OK");
 
                 return;
-            }
-
-            bool success = false;
-
-            using (var stream = result.GetStream())
-            {
-                success = await OpenFileHelper.OpenTrackAsync(stream, result.FileName);
             }
 
             if (success)
@@ -293,8 +313,9 @@ namespace WhereToFly.App.Core.ViewModels
             try
             {
                 IDataService dataService = DependencyService.Get<IDataService>();
+                var trackDataService = dataService.GetTrackDataService();
 
-                var newTrackList = await dataService.GetTrackListAsync(CancellationToken.None);
+                var newTrackList = (await trackDataService.GetList()).ToList();
 
                 if (this.trackList.Count != newTrackList.Count ||
                     this.TrackList == null ||

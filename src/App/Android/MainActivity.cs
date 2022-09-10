@@ -3,11 +3,15 @@ using Android.Content;
 using Android.Content.PM;
 using Android.OS;
 using Android.Widget;
-using Plugin.Permissions;
+using Google.Android.Material.Snackbar;
+using System;
 using System.IO;
+using System.Net.Http;
 using WhereToFly.App.Core;
 using Xamarin.Forms;
 using Xamarin.Forms.Platform.Android;
+
+#pragma warning disable SA1118 // Parameter should not span multiple lines
 
 namespace WhereToFly.App.Android
 {
@@ -18,12 +22,14 @@ namespace WhereToFly.App.Android
     /// http://www.helloandroid.com/tutorials/communicating-between-running-activities
     /// The intent filters are used to open various combinations of files.
     /// </summary>
-    [Activity(Label = Constants.AppTitle,
+    [Activity(
+        Label = Constants.AppTitle,
         Name = "wheretofly.MainActivity",
-        Icon = "@drawable/icon",
+        Icon = "@mipmap/icon",
         Theme = "@style/MainTheme",
         LaunchMode = LaunchMode.SingleTask,
-        ConfigurationChanges = ConfigChanges.ScreenSize | ConfigChanges.Orientation)]
+        Exported = true,
+        ConfigurationChanges = ConfigChanges.ScreenSize | ConfigChanges.UiMode | ConfigChanges.Orientation)]
     //// Intent filter, case 1: mime type set
     //// See https://stackoverflow.com/questions/39300649/android-intent-filter-not-working
     [IntentFilter(
@@ -34,9 +40,11 @@ namespace WhereToFly.App.Android
             "application/vnd.google-earth.kml+xml",
             "application/vnd.google-earth.kmz",
             "application/gpx+xml",
+            "application/x-igc", // xcontest .igc files return this MIME type
+            "text/plain",
         },
         Categories = new[] { Intent.CategoryDefault, Intent.CategoryBrowsable },
-        Icon = "@drawable/icon")]
+        Icon = "@mipmap/icon")]
     //// Intent filter, case 2: mime type not set, but valid extensions
     [IntentFilter(
         new[] { Intent.ActionView, Intent.ActionOpenDocument },
@@ -49,9 +57,11 @@ namespace WhereToFly.App.Android
             @".*\\.gpx", @".*\\..*\\.gpx", ".*\\..*\\..*\\.gpx", ".*\\..*\\..*\\..*\\.gpx",
             @".*\\.igc", @".*\\..*\\.igc", ".*\\..*\\..*\\.igc", ".*\\..*\\..*\\..*\\.igc",
             @".*\\.czml", @".*\\..*\\.czml", ".*\\..*\\..*\\.czml", ".*\\..*\\..*\\..*\\.czml",
+            @".*\\.cup", @".*\\..*\\.cup", ".*\\..*\\..*\\.cup", ".*\\..*\\..*\\..*\\.cup",
+            @".*\\.txt", @".*\\..*\\.txt", ".*\\..*\\..*\\.txt", ".*\\..*\\..*\\..*\\.txt",
         },
         Categories = new[] { Intent.CategoryDefault, Intent.CategoryBrowsable },
-        Icon = "@drawable/icon")]
+        Icon = "@mipmap/icon")]
     //// Intent filter, case 3: application/octet-stream, and valid extension
     [IntentFilter(
         new[] { Intent.ActionView, Intent.ActionOpenDocument },
@@ -65,9 +75,11 @@ namespace WhereToFly.App.Android
             @".*\\.gpx", @".*\\..*\\.gpx", ".*\\..*\\..*\\.gpx", ".*\\..*\\..*\\..*\\.gpx",
             @".*\\.igc", @".*\\..*\\.igc", ".*\\..*\\..*\\.igc", ".*\\..*\\..*\\..*\\.igc",
             @".*\\.czml", @".*\\..*\\.czml", ".*\\..*\\..*\\.czml", ".*\\..*\\..*\\..*\\.czml",
+            @".*\\.cup", @".*\\..*\\.cup", ".*\\..*\\..*\\.cup", ".*\\..*\\..*\\..*\\.cup",
+            @".*\\.txt", @".*\\..*\\.txt", ".*\\..*\\..*\\.txt", ".*\\..*\\..*\\..*\\.txt",
         },
         Categories = new[] { Intent.CategoryDefault, Intent.CategoryBrowsable },
-        Icon = "@drawable/icon")]
+        Icon = "@mipmap/icon")]
     //// Intent filter, case 4: application/octet-stream, and valid extension, but not data host
     [IntentFilter(
         new[] { Intent.ActionView, Intent.ActionOpenDocument, Intent.ActionDefault },
@@ -80,15 +92,17 @@ namespace WhereToFly.App.Android
             @".*\\.gpx", @".*\\..*\\.gpx", ".*\\..*\\..*\\.gpx", ".*\\..*\\..*\\..*\\.gpx",
             @".*\\.igc", @".*\\..*\\.igc", ".*\\..*\\..*\\.igc", ".*\\..*\\..*\\..*\\.igc",
             @".*\\.czml", @".*\\..*\\.czml", ".*\\..*\\..*\\.czml", ".*\\..*\\..*\\..*\\.czml",
+            @".*\\.cup", @".*\\..*\\.cup", ".*\\..*\\..*\\.cup", ".*\\..*\\..*\\..*\\.cup",
+            @".*\\.txt", @".*\\..*\\.txt", ".*\\..*\\..*\\.txt", ".*\\..*\\..*\\..*\\.txt",
         },
         Categories = new[] { Intent.CategoryDefault, Intent.CategoryBrowsable },
-        Icon = "@drawable/icon")]
+        Icon = "@mipmap/icon")]
     //// Intent filter, case 5: URI with where-to-fly scheme
     [IntentFilter(
         new[] { Intent.ActionView },
         DataScheme = WhereToFly.Shared.Model.AppResourceUri.DefaultScheme,
         Categories = new[] { Intent.CategoryDefault, Intent.CategoryBrowsable },
-        Icon = "@drawable/icon")]
+        Icon = "@mipmap/icon")]
     public class MainActivity : FormsAppCompatActivity
     {
         /// <summary>
@@ -105,14 +119,23 @@ namespace WhereToFly.App.Android
 
             Xamarin.Essentials.Platform.Init(this, savedInstanceState);
 
-            Rg.Plugins.Popup.Popup.Init(this, savedInstanceState);
+            Rg.Plugins.Popup.Popup.Init(this);
 
-            Forms.SetFlags("FastRenderers_Experimental");
             Forms.Init(this, savedInstanceState);
 
-            FFImageLoading.ImageService.Instance.Initialize();
+            var imageLoadingConfig = new FFImageLoading.Config.Configuration
+            {
+                HttpClient = new HttpClient(new FFImageLoadingHttpClientHandler()),
+            };
+
+            FFImageLoading.ImageService.Instance.Initialize(imageLoadingConfig);
             FFImageLoading.Forms.Platform.CachedImageRenderer.Init(enableFastRenderer: true);
 
+            // ignore NetworkProvider, as it's too inaccurate
+            Plugin.Geolocator.GeolocatorImplementation.ProvidersToUseWhileListening =
+                new string[] { global::Android.Locations.LocationManager.GpsProvider };
+
+            MessagingCenter.Unsubscribe<Core.App, string>(this, Constants.MessageShowToast);
             MessagingCenter.Subscribe<Core.App, string>(this, Constants.MessageShowToast, this.ShowToast);
 
             this.LoadApplication(new Core.App());
@@ -132,7 +155,7 @@ namespace WhereToFly.App.Android
 
         /// <summary>
         /// Called when activity is called with a new intent, e.g. from the intent filter for file
-        /// extension (.kml, .kmz, .gpx, .igc).
+        /// extension (.kml, .kmz, .gpx, .igc, .czml, .cup, .txt).
         /// See: https://stackoverflow.com/questions/3760276/android-intent-filter-associate-app-with-file-extension
         /// </summary>
         /// <param name="intent">intent to be passed to the app</param>
@@ -166,27 +189,33 @@ namespace WhereToFly.App.Android
         /// <param name="intent">intent to process</param>
         private void ProcessIntent(Intent intent)
         {
-            var app = Core.App.Current as Core.App;
-            if (intent.DataString != null &&
-                intent.DataString.StartsWith(Shared.Model.AppResourceUri.DefaultScheme))
+            try
             {
-                Core.App.RunOnUiThread(async () => await app.OpenAppResourceUriAsync(intent.DataString));
-                return;
+                if (intent.DataString != null &&
+                    intent.DataString.StartsWith(Shared.Model.AppResourceUri.DefaultScheme))
+                {
+                    Core.App.OpenAppResourceUri(intent.DataString);
+                    return;
+                }
+
+                var helper = new IntentFilterHelper(this.ContentResolver);
+
+                string filename = Path.GetFileName(helper.GetFilenameFromIntent(intent));
+                if (filename == null)
+                {
+                    return;
+                }
+
+                var stream = helper.GetStreamFromIntent(intent);
+
+                if (stream != null)
+                {
+                    Core.App.RunOnUiThread(async () => await OpenFileHelper.OpenFileAsync(stream, filename));
+                }
             }
-
-            var helper = new IntentFilterHelper(this.ContentResolver);
-
-            string filename = Path.GetFileName(helper.GetFilenameFromIntent(intent));
-            if (filename == null)
+            catch (Exception)
             {
-                return;
-            }
-
-            var stream = helper.GetStreamFromIntent(intent);
-
-            if (stream != null)
-            {
-                Core.App.RunOnUiThread(async () => await app.OpenFileAsync(stream, filename));
+                // ignore errors
             }
         }
 
@@ -204,19 +233,31 @@ namespace WhereToFly.App.Android
             Xamarin.Essentials.Platform.OnRequestPermissionsResult(requestCode, permissions, grantResults);
 
             base.OnRequestPermissionsResult(requestCode, permissions, grantResults);
-
-            // let Plugin.Permissions handle the request
-            PermissionsImplementation.Current.OnRequestPermissionsResult(requestCode, permissions, grantResults);
         }
 
         /// <summary>
         /// Shows toast message with given text
         /// </summary>
-        /// <param name="app">app object; unused</param>
+        /// <param name="app">sender app object</param>
         /// <param name="message">toast message</param>
         private void ShowToast(Core.App app, string message)
         {
-            Toast.MakeText(this, message, ToastLength.Short).Show();
+            Core.App.RunOnUiThread(
+                () =>
+                {
+                    // Snackbar available from API Level 23 on
+                    if (Build.VERSION.SdkInt >= BuildVersionCodes.M)
+                    {
+                        var view = Core.App.Current?.MainPage?.GetRenderer()?.View;
+
+                        view ??= this.Window.DecorView;
+                        Snackbar.Make(this, view, message, Snackbar.LengthShort).Show();
+                    }
+                    else
+                    {
+                        Toast.MakeText(this, message, ToastLength.Long).Show();
+                    }
+                });
         }
     }
 }

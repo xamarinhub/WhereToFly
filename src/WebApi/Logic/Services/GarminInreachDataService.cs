@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Threading.Tasks;
+using WhereToFly.Geo.Model;
 using WhereToFly.Shared.Base;
 using WhereToFly.Shared.Model;
 
@@ -44,12 +45,12 @@ namespace WhereToFly.WebApi.Logic.Services
         /// <summary>
         /// HTTP client used for requests
         /// </summary>
-        private readonly HttpClient client = new HttpClient();
+        private readonly HttpClient client = new();
 
         /// <summary>
         /// Mapping of MapShare identifier to Date/time of last request
         /// </summary>
-        private readonly Dictionary<string, DateTimeOffset> lastRequestByMapShareIdentifier = new Dictionary<string, DateTimeOffset>();
+        private readonly Dictionary<string, DateTimeOffset> lastRequestByMapShareIdentifier = new();
 
         /// <summary>
         /// Date/time of last request, or null when no request was made yet
@@ -77,7 +78,7 @@ namespace WhereToFly.WebApi.Logic.Services
         }
 
         /// <summary>
-        /// Gets live waypoint data for Garmin inREach device, using the MapShare identifier given
+        /// Gets live waypoint data for Garmin inReach device, using the MapShare identifier given
         /// </summary>
         /// <param name="mapShareIdentifier">MapShare identifier</param>
         /// <returns>live waypoint data for device</returns>
@@ -91,7 +92,31 @@ namespace WhereToFly.WebApi.Logic.Services
             this.lastRequest = thisRequestTime;
             this.lastRequestByMapShareIdentifier[mapShareIdentifier] = thisRequestTime;
 
-            return this.ParseRawKmlDataFile(stream, mapShareIdentifier);
+            return this.ParseRawKmlFileWaypointData(stream, mapShareIdentifier);
+        }
+
+        /// <summary>
+        /// Gets live track data for Garmin inReach device, using the MapShare identifier given
+        /// </summary>
+        /// <param name="mapShareIdentifier">MapShare identifier</param>
+        /// <param name="startTime">
+        /// indicates the starting date and time of the data queried from the Garmin server
+        /// </param>
+        /// <returns>live track data for device</returns>
+        public async Task<LiveTrackData> GetTrackAsync(
+            string mapShareIdentifier,
+            DateTimeOffset startTime)
+        {
+            string requestUrl = string.Format(InreachServiceUrl, mapShareIdentifier);
+            requestUrl += "?d1=" + startTime.UtcDateTime.ToString("yyyy'-'MM'-'dd'T'HH':'mmK");
+
+            var stream = await this.client.GetStreamAsync(requestUrl);
+
+            var thisRequestTime = DateTimeOffset.Now;
+            this.lastRequest = thisRequestTime;
+            this.lastRequestByMapShareIdentifier[mapShareIdentifier] = thisRequestTime;
+
+            return this.ParseRawKmlFileTrackData(stream, mapShareIdentifier);
         }
 
         /// <summary>
@@ -101,15 +126,13 @@ namespace WhereToFly.WebApi.Logic.Services
         /// <param name="stream">stream to read kml from</param>
         /// <param name="mapShareIdentifier">MapShare identifier used for request</param>
         /// <returns>live waypoint data</returns>
-        internal LiveWaypointData ParseRawKmlDataFile(Stream stream, string mapShareIdentifier)
+        internal LiveWaypointData ParseRawKmlFileWaypointData(Stream stream, string mapShareIdentifier)
         {
             var file = KmlFile.Load(stream);
 
-            var placemark = file.Root.Flatten().First(x => x is Placemark) as Placemark;
-
-            if (placemark == null)
+            if (file.Root.Flatten().FirstOrDefault(x => x is Placemark) is not Placemark placemark)
             {
-                throw new FormatException("Garmin inReach Raw KML Data contains no Placemark");
+                throw new FormatException("No Garmin inReach position/placemark returned from the server");
             }
 
             var point = placemark.Geometry as Point;
@@ -129,8 +152,103 @@ namespace WhereToFly.WebApi.Logic.Services
                 Longitude = point.Coordinate.Longitude,
                 Altitude = (int)(point.Coordinate.Altitude ?? 0.0),
                 TimeStamp = when.HasValue ? new DateTimeOffset(when.Value) : DateTimeOffset.Now,
-                Description = FormatDescriptionFromPlacemark(placemark),
+                Description = FormatDescriptionFromPlacemark(placemark) +
+                    LiveWaypointCacheManager.GetCoveredDistanceDescription(new MapPoint(point.Coordinate.Latitude, point.Coordinate.Longitude)),
                 DetailsLink = string.Format(MapSharePublicUrl, mapShareIdentifier),
+            };
+        }
+
+        /// <summary>
+        /// Parses the raw KML Data file returned by the inReach service and produces live
+        /// track data.
+        /// </summary>
+        /// <param name="stream">stream to read kml from</param>
+        /// <param name="mapShareIdentifier">MapShare identifier used for request</param>
+        /// <returns>live track data</returns>
+        internal LiveTrackData ParseRawKmlFileTrackData(
+            Stream stream,
+            string mapShareIdentifier)
+        {
+            var file = KmlFile.Load(stream);
+
+            // find all point placemarks and parse their extra data for date/time
+            // ignore the LineString placemarks as they have no time reference
+            var allPointPlacemarks =
+                file.Root.Flatten()
+                .Where(
+                    element => element is Placemark placemark &&
+                    placemark.Geometry is Point);
+
+            var firstPlacemark = allPointPlacemarks.FirstOrDefault() as Placemark;
+
+            var lastLineStringPlacemark =
+                file.Root.Flatten()
+                .LastOrDefault(element => element is Placemark placemark &&
+                placemark.Geometry is LineString) as Placemark;
+
+            if (firstPlacemark == null ||
+                lastLineStringPlacemark == null)
+            {
+                throw new FormatException("No Garmin inReach Point placemarks returned from the server");
+            }
+
+            var track = new Track();
+
+            foreach (Placemark placemark in allPointPlacemarks.Cast<Placemark>())
+            {
+                var point = placemark.Geometry as Point;
+
+                TrackPoint trackPoint =
+                    GetTrackPointFromKmlPointGeometry(placemark, point);
+                track.TrackPoints.Add(trackPoint);
+            }
+
+            DateTimeOffset? trackStart = track.TrackPoints.FirstOrDefault()?.Time;
+
+            if (trackStart == null)
+            {
+                throw new FormatException("No Garmin inReach track points with time references found");
+            }
+
+            var trackPoints = track.TrackPoints.Select(
+                trackPoint => new LiveTrackData.LiveTrackPoint
+                {
+                    Latitude = trackPoint.Latitude,
+                    Longitude = trackPoint.Longitude,
+                    Altitude = trackPoint.Altitude ?? 0.0,
+                    Offset = (trackPoint.Time.Value - trackStart.Value).TotalSeconds,
+                });
+
+            return new LiveTrackData
+            {
+                ID = FormatLiveWaypointId(mapShareIdentifier),
+                Name = "Garmin inReach " + lastLineStringPlacemark.Name,
+                Description = lastLineStringPlacemark.Description.Text,
+                TrackStart = trackStart.Value,
+                TrackPoints = trackPoints.ToArray(),
+            };
+        }
+
+        /// <summary>
+        /// Creates track point object from SharpKml Point object with Garmin extra data
+        /// </summary>
+        /// <param name="point">point object</param>
+        /// <returns>track point object</returns>
+        private static TrackPoint GetTrackPointFromKmlPointGeometry(Placemark placemark, Point point)
+        {
+            var timestamp = placemark?.Time as Timestamp;
+            var timeUtc = timestamp?.When;
+            DateTimeOffset? time = timeUtc != null
+                ? new DateTimeOffset(timeUtc.Value)
+                : null;
+
+            return new TrackPoint(
+                point.Coordinate.Latitude,
+                point.Coordinate.Longitude,
+                point.Coordinate.Altitude,
+                heading: null)
+            {
+                Time = time,
             };
         }
 

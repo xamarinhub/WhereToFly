@@ -1,10 +1,10 @@
 ﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
+using System;
 using System.Linq;
-using System.Threading;
 using WhereToFly.App.Core;
-using WhereToFly.App.Core.Services;
+using WhereToFly.App.Core.Models;
+using WhereToFly.App.Core.Services.SqliteDatabase;
 using WhereToFly.App.Core.ViewModels;
-using WhereToFly.App.Model;
 using Xamarin.Forms;
 
 namespace WhereToFly.App.UnitTest.ViewModels
@@ -23,7 +23,7 @@ namespace WhereToFly.App.UnitTest.ViewModels
         public void SetUp()
         {
             Xamarin.Forms.Mocks.MockForms.Init();
-            DependencyService.Register<IDataService, DataService>();
+            DependencyService.Register<IDataService, SqliteDatabaseDataService>();
             DependencyService.Register<IPlatform, UnitTestPlatform>();
         }
 
@@ -37,17 +37,11 @@ namespace WhereToFly.App.UnitTest.ViewModels
             var appSettings = new AppSettings();
             var viewModel = new LocationListViewModel(appSettings);
 
-            var propertyChangedEvent = new ManualResetEvent(false);
-
-            viewModel.PropertyChanged += (sender, args) =>
-                {
-                    if (args.PropertyName == nameof(viewModel.LocationList))
-                    {
-                        propertyChangedEvent.Set();
-                    }
-                };
-
-            propertyChangedEvent.WaitOne();
+            Assert.IsTrue(
+                viewModel.WaitForPropertyChange(
+                    nameof(viewModel.LocationList),
+                    TimeSpan.FromSeconds(10)),
+                "waiting for property change must succeed");
 
             // check
             Assert.IsTrue(viewModel.LocationList.Any(), "location list initially contains the default locations");

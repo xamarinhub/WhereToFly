@@ -1,9 +1,12 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
+using System.Windows.Input;
+using WhereToFly.App.Core.Models;
 using WhereToFly.App.Core.Services;
-using WhereToFly.App.Model;
+using WhereToFly.App.Core.Views;
+using Xamarin.CommunityToolkit.ObjectModel;
 using Xamarin.Forms;
 
 namespace WhereToFly.App.Core.ViewModels
@@ -11,84 +14,74 @@ namespace WhereToFly.App.Core.ViewModels
     /// <summary>
     /// View model for the weather dashboard page
     /// </summary>
-    internal class WeatherDashboardViewModel : ViewModelBase
+    public class WeatherDashboardViewModel : ViewModelBase
     {
+        /// <summary>
+        /// List of weather icon descriptions to display
+        /// </summary>
+        private List<WeatherIconDescription> weatherIconDescriptionList;
+
         #region Bindings properties
         /// <summary>
-        /// List of weather icon descriptions for all weather icons to display
+        /// List of weather icon view models for all weather icons to display
         /// </summary>
-        public List<WeatherIconDescription> WeatherIconDescriptionList { get; set; }
+        public ObservableCollection<WeatherIconViewModel> WeatherDashboardItems { get; set; } =
+            new ObservableCollection<WeatherIconViewModel>();
 
         /// <summary>
-        /// Command to execute when "add new" menu item is selected
+        /// Command to execute when "add bookmark" menu item is selected
         /// </summary>
-        public Command AddNewCommand { get; set; }
+        public ICommand AddWebLinkCommand { get; set; }
+
+        /// <summary>
+        /// Command to execute when "add icon" menu item is selected
+        /// </summary>
+        public ICommand AddIconCommand { get; set; }
 
         /// <summary>
         /// Command to execute when "clear all" menu item is selected
         /// </summary>
-        public Command ClearAllCommand { get; set; }
+        public ICommand ClearAllCommand { get; set; }
         #endregion
-
-        /// <summary>
-        /// MessagingCenter message constant to show toast message
-        /// </summary>
-        private const string MessageAddWeatherIcon = "AddWeatherIcon";
 
         /// <summary>
         /// Creates a new view model for the weather dashboard
         /// </summary>
         public WeatherDashboardViewModel()
         {
-            MessagingCenter.Subscribe<object, WeatherIconDescription>(this, MessageAddWeatherIcon, this.OnAddWeatherIcon);
-
             this.SetupBindings();
-        }
-
-        /// <summary>
-        /// Adds new weather icon to dashboard; called by SelectWeatherIconViewModel
-        /// </summary>
-        /// <param name="sender">sender object; must not be null</param>
-        /// <param name="iconDescription">weather icon description</param>
-        public static void AddWeatherIcon(object sender, WeatherIconDescription iconDescription)
-        {
-            MessagingCenter.Send<object, WeatherIconDescription>(sender, MessageAddWeatherIcon, iconDescription);
         }
 
         /// <summary>
         /// Called when a weather icon should be added to the dashboard
         /// </summary>
-        /// <param name="sender">sender; always null</param>
         /// <param name="iconDescription">weather icon description</param>
-        private void OnAddWeatherIcon(object sender, WeatherIconDescription iconDescription)
+        /// <returns>task to wait on</returns>
+        public async Task AddWeatherIcon(WeatherIconDescription iconDescription)
         {
             // remove it when it's already in the list, in order to move it to the end
-            this.WeatherIconDescriptionList.RemoveAll(
+            this.weatherIconDescriptionList.RemoveAll(
                 x => x.Type == iconDescription.Type && x.WebLink == iconDescription.WebLink);
 
-            int insertIndex = this.WeatherIconDescriptionList.Any() ? this.WeatherIconDescriptionList.Count - 1 : 0;
-            this.WeatherIconDescriptionList.Insert(insertIndex, iconDescription);
+            this.weatherIconDescriptionList.Add(iconDescription);
 
-            this.OnPropertyChanged(nameof(this.WeatherIconDescriptionList));
+            await this.SaveWeatherIconListAsync();
 
-            Task.Run(async () =>
-            {
-                await this.SaveWeatherIconListAsync();
-            });
+            this.UpdateWeatherDashboardItems();
         }
 
         /// <summary>
-        /// Saves weather icon list, without placeholder icon, to storage
+        /// Saves current weather icon description list, to storage
         /// </summary>
         /// <returns>task to wait on</returns>
         private async Task SaveWeatherIconListAsync()
         {
             var dataService = DependencyService.Get<IDataService>();
+            var weatherDashboardIconDataService = dataService.GetWeatherDashboardIconDataService();
 
-            var weatherIconDescriptionList = new List<WeatherIconDescription>(this.WeatherIconDescriptionList);
-            weatherIconDescriptionList.RemoveAll(x => x.Type == WeatherIconDescription.IconType.IconPlaceholder);
-
-            await dataService.StoreWeatherIconDescriptionListAsync(weatherIconDescriptionList);
+            await weatherDashboardIconDataService.ClearList();
+            await weatherDashboardIconDataService.AddList(
+                this.weatherIconDescriptionList);
         }
 
         /// <summary>
@@ -96,45 +89,72 @@ namespace WhereToFly.App.Core.ViewModels
         /// </summary>
         private void SetupBindings()
         {
-            this.WeatherIconDescriptionList = new List<WeatherIconDescription>();
+            this.AddIconCommand = new AsyncCommand(this.AddIconAsync);
+            this.AddWebLinkCommand = new AsyncCommand(this.AddWebLinkAsync);
+            this.ClearAllCommand = new AsyncCommand(this.ClearAllWeatherIcons);
 
-            this.AddNewCommand = new Command(async () =>
-            {
-                Action<WeatherIconDescription> parameter = this.OnSelectedWeatherIcon;
-
-                await NavigationService.Instance.NavigateAsync(
-                    Constants.PageKeySelectWeatherIconPage,
-                    animated: true,
-                    parameter: parameter);
-            });
-
-            this.ClearAllCommand = new Command(async () => await this.ClearAllWeatherIcons());
-
-            Task.Run(async () =>
-            {
-                var dataService = DependencyService.Get<IDataService>();
-
-                this.WeatherIconDescriptionList = await dataService.GetWeatherIconDescriptionListAsync();
-
-                this.WeatherIconDescriptionList.Add(
-                    new WeatherIconDescription
-                    {
-                        Name = "Add new...",
-                        Type = WeatherIconDescription.IconType.IconPlaceholder,
-                    });
-
-                this.OnPropertyChanged(nameof(this.WeatherIconDescriptionList));
-            });
+            Task.Run(async () => await this.InitWeatherIconDescriptionList());
         }
 
         /// <summary>
-        /// Called from SelectWeatherIconPage when a weather icon was selected by the user.
+        /// Initializes weather icon description list
         /// </summary>
-        /// <param name="weatherIcon">selected weather icon</param>
-        private void OnSelectedWeatherIcon(WeatherIconDescription weatherIcon)
+        /// <returns>task to wait on</returns>
+        private async Task InitWeatherIconDescriptionList()
         {
-            AddWeatherIcon(this, weatherIcon);
-            App.RunOnUiThread(async () => await NavigationService.Instance.GoBack());
+            var dataService = DependencyService.Get<IDataService>();
+            var weatherDashboardIconDataService = dataService.GetWeatherDashboardIconDataService();
+
+            this.weatherIconDescriptionList =
+                (await weatherDashboardIconDataService.GetList()).ToList();
+
+            this.UpdateWeatherDashboardItems();
+        }
+
+        /// <summary>
+        /// Adds a weather icon to the current dashboard
+        /// </summary>
+        /// <returns>task to wait on</returns>
+        private async Task AddIconAsync()
+        {
+            var weatherIcon =
+                await NavigationService.Instance.NavigateToPopupPageAsync<WeatherIconDescription>(
+                    PopupPageKey.SelectWeatherIconPopupPage,
+                    animated: true);
+
+            if (weatherIcon != null)
+            {
+                await this.AddWeatherIcon(weatherIcon);
+            }
+        }
+
+        /// <summary>
+        /// Called when the user clicked on the "add web link" button
+        /// </summary>
+        /// <returns>task to wait on</returns>
+        private async Task AddWebLinkAsync()
+        {
+            WeatherIconDescription weatherIconDescription =
+                await AddWeatherLinkPopupPage.ShowAsync();
+
+            if (weatherIconDescription == null)
+            {
+                return;
+            }
+
+            var dataService = DependencyService.Get<IDataService>();
+            var weatherIconDescriptionDataService = dataService.GetWeatherIconDescriptionDataService();
+            await weatherIconDescriptionDataService.Add(weatherIconDescription);
+
+            int insertIndex = this.WeatherDashboardItems.Any()
+                ? this.WeatherDashboardItems.Count - 1
+                : 0;
+
+            this.WeatherDashboardItems.Insert(
+                insertIndex,
+                new WeatherIconViewModel(this.AddIconAsync, weatherIconDescription));
+
+            this.OnPropertyChanged(nameof(this.WeatherDashboardItems));
         }
 
         /// <summary>
@@ -143,18 +163,33 @@ namespace WhereToFly.App.Core.ViewModels
         /// <returns>task to wait on</returns>
         private async Task ClearAllWeatherIcons()
         {
-            this.WeatherIconDescriptionList.Clear();
-
-            this.WeatherIconDescriptionList.Add(
-                new WeatherIconDescription
-                {
-                    Name = "Add new...",
-                    Type = WeatherIconDescription.IconType.IconPlaceholder,
-                });
-
-            this.OnPropertyChanged(nameof(this.WeatherIconDescriptionList));
-
+            this.weatherIconDescriptionList.Clear();
             await this.SaveWeatherIconListAsync();
+
+            this.UpdateWeatherDashboardItems();
+        }
+
+        /// <summary>
+        /// Updates the weather icon view model list from the icon list.
+        /// </summary>
+        private void UpdateWeatherDashboardItems()
+        {
+            var weatherIconViewModels =
+                (from iconDescription in this.weatherIconDescriptionList
+                 select new WeatherIconViewModel(this.AddIconAsync, iconDescription)).ToList();
+
+            weatherIconViewModels.Add(
+                new WeatherIconViewModel(
+                    this.AddIconAsync,
+                    new WeatherIconDescription
+                    {
+                        Name = "Add new...",
+                        Type = WeatherIconDescription.IconType.IconPlaceholder,
+                    }));
+
+            this.WeatherDashboardItems = new ObservableCollection<WeatherIconViewModel>(weatherIconViewModels);
+
+            this.OnPropertyChanged(nameof(this.WeatherDashboardItems));
         }
     }
 }

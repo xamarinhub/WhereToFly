@@ -1,18 +1,15 @@
 ﻿using Rg.Plugins.Popup.Extensions;
-using Rg.Plugins.Popup.Pages;
 using System;
 using System.Threading.Tasks;
 using WhereToFly.App.Core.ViewModels;
-using WhereToFly.App.Model;
-using Xamarin.Forms.Xaml;
+using WhereToFly.App.MapView;
 
 namespace WhereToFly.App.Core.Views
 {
     /// <summary>
     /// Popup page for setting parameters to show flying range.
     /// </summary>
-    [XamlCompilation(XamlCompilationOptions.Compile)]
-    public partial class FlyingRangePopupPage : PopupPage
+    public partial class FlyingRangePopupPage : BasePopupPage
     {
         /// <summary>
         /// View model for this popup page
@@ -33,7 +30,7 @@ namespace WhereToFly.App.Core.Views
 
             this.InitializeComponent();
 
-            this.BindingContext = this.viewModel = new FlyingRangePopupViewModel();
+            this.BindingContext = this.viewModel = new FlyingRangePopupViewModel(App.Settings);
         }
 
         /// <summary>
@@ -44,7 +41,7 @@ namespace WhereToFly.App.Core.Views
         {
             var popupPage = new FlyingRangePopupPage()
             {
-                tcs = new TaskCompletionSource<FlyingRangeParameters>()
+                tcs = new TaskCompletionSource<FlyingRangeParameters>(),
             };
 
             await popupPage.Navigation.PushPopupAsync(popupPage);

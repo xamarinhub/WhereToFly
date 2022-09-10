@@ -1,6 +1,5 @@
 ﻿using System.Diagnostics;
 using WhereToFly.App.Core;
-using Xamarin.Forms;
 
 namespace WhereToFly.App.UnitTest
 {
@@ -18,6 +17,9 @@ namespace WhereToFly.App.UnitTest
         /// Indicates if app has been opened using the OpenApp() method
         /// </summary>
         public bool AppHasBeenOpened { get; internal set; }
+
+        /// <inheritdoc />
+        public bool IsAvailable(string packageName) => this.AppExists;
 
         /// <inheritdoc />
         public byte[] GetAppIcon(string packageName)

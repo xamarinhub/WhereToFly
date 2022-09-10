@@ -1,9 +1,9 @@
 ﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System;
 using System.IO;
-using WhereToFly.App.Geo;
-using WhereToFly.App.Geo.DataFormats;
-using WhereToFly.App.Geo.Spatial;
+using WhereToFly.Geo;
+using WhereToFly.Geo.DataFormats;
+using WhereToFly.Geo.Model;
 
 namespace WhereToFly.App.UnitTest.Geo
 {
@@ -42,7 +42,7 @@ namespace WhereToFly.App.UnitTest.Geo
                 "track_linestring.kmz",
                 "tracks.gpx",
                 "tracks.kmz",
-                ////"85QA3ET1.igc", // TODO causes exception
+                "85QA3ET1.igc",
             };
 
             // run

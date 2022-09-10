@@ -1,8 +1,7 @@
-﻿using System.Collections.Generic;
+﻿using System;
 using System.Threading;
 using System.Threading.Tasks;
-using WhereToFly.App.Geo;
-using WhereToFly.App.Model;
+using WhereToFly.App.Core.Models;
 using WhereToFly.Shared.Model;
 
 namespace WhereToFly.App.Core
@@ -27,66 +26,36 @@ namespace WhereToFly.App.Core
         Task StoreAppSettingsAsync(AppSettings appSettings);
 
         /// <summary>
-        /// Gets list of locations
+        /// Returns a data service for Location objects
         /// </summary>
-        /// <param name="token">cancellation token</param>
-        /// <returns>list of locations</returns>
-        Task<List<Location>> GetLocationListAsync(CancellationToken token);
+        /// <returns>location data service</returns>
+        ILocationDataService GetLocationDataService();
 
         /// <summary>
-        /// Stores new location list
+        /// Returns a data service for Track objects
         /// </summary>
-        /// <param name="locationList">location list to store</param>
-        /// <returns>task to wait on</returns>
-        Task StoreLocationListAsync(List<Location> locationList);
+        /// <returns>track data service</returns>
+        ITrackDataService GetTrackDataService();
 
         /// <summary>
-        /// Gets list of tracks
+        /// Returns a data service for Layer objects
         /// </summary>
-        /// <param name="token">cancellation token</param>
-        /// <returns>list of tracks</returns>
-        Task<List<Track>> GetTrackListAsync(CancellationToken token);
+        /// <returns>layer data service</returns>
+        ILayerDataService GetLayerDataService();
 
         /// <summary>
-        /// Stores new track list
+        /// Returns a data service for WeatherIconDescription objects. The data services manages
+        /// all weather icon descriptions that are available.
         /// </summary>
-        /// <param name="trackList">track list to store</param>
-        /// <returns>task to wait on</returns>
-        Task StoreTrackListAsync(List<Track> trackList);
+        /// <returns>weather icon description data service</returns>
+        IWeatherIconDescriptionDataService GetWeatherIconDescriptionDataService();
 
         /// <summary>
-        /// Gets list of layers
+        /// Returns a data service for WeatherIconDescription objects that are visible on the
+        /// weather dashboard.
         /// </summary>
-        /// <param name="token">cancellation token</param>
-        /// <returns>list of layers</returns>
-        Task<List<Layer>> GetLayerListAsync(CancellationToken token);
-
-        /// <summary>
-        /// Stores new layer list
-        /// </summary>
-        /// <param name="layerList">layer list to store</param>
-        /// <returns>task to wait on</returns>
-        Task StoreLayerListAsync(List<Layer> layerList);
-
-        /// <summary>
-        /// Retrieves list of weather icon descriptions
-        /// </summary>
-        /// <returns>list with current weather icon descriptions</returns>
-        Task<List<WeatherIconDescription>> GetWeatherIconDescriptionListAsync();
-
-        /// <summary>
-        /// Stores new weather icon list
-        /// </summary>
-        /// <param name="weatherIconList">weather icon list to store</param>
-        /// <returns>task to wait on</returns>
-        Task StoreWeatherIconDescriptionListAsync(List<WeatherIconDescription> weatherIconList);
-
-        /// <summary>
-        /// Returns the repository of all available weather icon descriptions that can be used
-        /// to select weather icons for the customized list
-        /// </summary>
-        /// <returns>repository of all weather icons</returns>
-        List<WeatherIconDescription> GetWeatherIconDescriptionRepository();
+        /// <returns>weather icon description data service</returns>
+        IWeatherIconDescriptionDataService GetWeatherDashboardIconDataService();
 
         /// <summary>
         /// Retrieves a favicon URL for the given website URL
@@ -102,6 +71,20 @@ namespace WhereToFly.App.Core
         /// <param name="liveWaypointId">live waypoint ID</param>
         /// <returns>query result for live waypoint</returns>
         Task<LiveWaypointQueryResult> GetLiveWaypointDataAsync(string liveWaypointId);
+
+        /// <summary>
+        /// Retrieves latest info about a live track, including new list of track points and
+        /// description.
+        /// </summary>
+        /// <param name="liveTrackId">live track ID</param>
+        /// <param name="lastTrackPointTime">
+        /// last track point that the client already has received, or null when no track points
+        /// are known yet
+        /// </param>
+        /// <returns>query result for live track</returns>
+        Task<LiveTrackQueryResult> GetLiveTrackDataAsync(
+            string liveTrackId,
+            DateTimeOffset? lastTrackPointTime);
 
         /// <summary>
         /// Plans a tour with given tour planning parameters and returns the planned tour.

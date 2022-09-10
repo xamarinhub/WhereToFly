@@ -1,9 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
-using WhereToFly.App.Geo;
-using WhereToFly.App.Model;
-using WhereToFly.Shared.Model;
+using WhereToFly.Geo.Model;
 
 namespace WhereToFly.App.UnitTest
 {
@@ -16,14 +14,26 @@ namespace WhereToFly.App.UnitTest
         /// Returns the Assets path for all unit tests; place your test files in the Assets folder
         /// and mark them with "Content" and "Copy if newer".
         /// </summary>
-        public static string TestAssetsPath
+        public static string TestAssetsPath =>
+            Path.Combine(
+                Path.GetDirectoryName(typeof(UnitTestHelper).Assembly.Location),
+                "Assets");
+
+        /// <summary>
+        /// Returns default layer for unit tests
+        /// </summary>
+        /// <returns>default layer</returns>
+        public static Layer GetDefaultLayer()
         {
-            get
+            return new Layer
             {
-                return Path.Combine(
-                    Path.GetDirectoryName(typeof(UnitTestHelper).Assembly.Location),
-                    "Assets");
-            }
+                Id = Guid.NewGuid().ToString("B"),
+                Name = "DefaultLayer",
+                Description = "Default description",
+                LayerType = LayerType.CzmlLayer,
+                IsVisible = true,
+                Data = "abc123xyz",
+            };
         }
 
         /// <summary>
@@ -39,7 +49,7 @@ namespace WhereToFly.App.UnitTest
                 MapLocation = new MapPoint(47.6764385, 11.8710533, 1685.0),
                 Description = "Herrliche Aussicht über die drei Seen Schliersee im Norden, Tegernsee im Westen und den Spitzingsee im Süden.",
                 Type = LocationType.Summit,
-                InternetLink = "https://de.wikipedia.org/wiki/Brecherspitz"
+                InternetLink = "https://de.wikipedia.org/wiki/Brecherspitz",
             };
         }
 
@@ -54,18 +64,19 @@ namespace WhereToFly.App.UnitTest
                 Id = "track1",
                 Name = "Track1",
                 IsFlightTrack = false,
+                IsLiveTrack = false,
                 Color = "FF0000",
                 TrackPoints = new List<TrackPoint>
                 {
                     new TrackPoint(47.754076, 12.352277, 1234.0, null)
                     {
-                        Time = DateTime.Today + TimeSpan.FromHours(1.0)
+                        Time = DateTime.Today + TimeSpan.FromHours(1.0),
                     },
                     new TrackPoint(46.017779, 11.900711, 778.2, null)
                     {
-                        Time = DateTime.Today + TimeSpan.FromHours(2.0)
+                        Time = DateTime.Today + TimeSpan.FromHours(2.0),
                     },
-                }
+                },
             };
         }
     }

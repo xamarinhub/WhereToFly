@@ -7,7 +7,7 @@ namespace WhereToFly.App.Core.Views
     /// The root page of the app, showing a slide-out menu on the left, and the map page in
     /// the center of the screen.
     /// </summary>
-    public class RootPage : MasterDetailPage
+    public class RootPage : FlyoutPage
     {
         /// <summary>
         /// Creates a new root page
@@ -22,18 +22,25 @@ namespace WhereToFly.App.Core.Views
         /// </summary>
         private void InitLayout()
         {
-            this.MasterBehavior = MasterBehavior.Popover;
+            this.FlyoutLayoutBehavior = FlyoutLayoutBehavior.Popover;
 
-            // set up master page
-            this.Master = new MenuPage();
-            this.Master.BackgroundColor = Constants.PrimaryColor;
+            // set up flyout menu page
+            this.Flyout = new MenuPage
+            {
+                BackgroundColor = Constants.PrimaryColor,
+            };
+            if (Device.RuntimePlatform == Device.iOS)
+            {
+                this.Flyout.IconImageSource = ImageSource.FromFile("Assets/images/menu.png");
+            }
 
             // set up detail page
             var mapPage = (App.Current as App).MapPage;
-            var navigationPage = new NavigationPage(mapPage);
-
-            navigationPage.BarBackgroundColor = Constants.PrimaryColor;
-            navigationPage.BarTextColor = Color.White;
+            var navigationPage = new NavigationPage(mapPage)
+            {
+                BarBackgroundColor = Constants.PrimaryColor,
+                BarTextColor = Color.White,
+            };
 
             NavigationPage.SetTitleIconImageSource(navigationPage, "icon.png");
 

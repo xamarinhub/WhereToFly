@@ -1,16 +1,14 @@
-﻿using Plugin.FilePicker;
-using Plugin.FilePicker.Abstractions;
-using Plugin.Geolocator.Abstractions;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
-using System.Threading;
 using System.Threading.Tasks;
+using System.Windows.Input;
+using WhereToFly.App.Core.Models;
 using WhereToFly.App.Core.Services;
-using WhereToFly.App.Logic;
-using WhereToFly.App.Model;
-using WhereToFly.Shared.Model;
+using WhereToFly.App.Core.Views;
+using WhereToFly.Geo.Model;
+using Xamarin.CommunityToolkit.ObjectModel;
 using Xamarin.Forms;
 
 namespace WhereToFly.App.Core.ViewModels
@@ -18,27 +16,29 @@ namespace WhereToFly.App.Core.ViewModels
     /// <summary>
     /// View model for the location list page
     /// </summary>
-    public class LocationListViewModel : ViewModelBase, IDisposable
+    public class LocationListViewModel : ViewModelBase
     {
         /// <summary>
         /// A mapping of display string to locations list filename, stored as Assets in the app
         /// </summary>
-        private readonly Dictionary<string, string> includedLocationsList = new Dictionary<string, string>
+        private readonly Dictionary<string, string> includedLocationsList = new()
         {
-            { "Paraglidingspots European Alps Mai 2019", "paraglidingspots_european_alps_2019_05_15.kmz" },
-            { "Crossing the Alps 2018 Waypoints", "crossing_the_alps_2018.kmz" },
-            { "Paraglidingspots Crossing the Alps 2019", "paraglidingspots_crossing_the_alps_2019_05_15.kmz" }
+            { "Example Schliersee locations", "default" },
+            { "Paraglidingspots European Alps Vs. 2.02", "paraglidingspots_european_alps_2022_03_29.kmz" },
         };
 
         /// <summary>
         /// A mapping of display string to website address to open
         /// </summary>
-        private readonly Dictionary<string, string> downloadWebSiteList = new Dictionary<string, string>
+        private readonly Dictionary<string, string> downloadWebSiteList = new()
         {
             { "vividos' Where-to-fly resources", "http://www.vividos.de/wheretofly/index.html" },
-            { "Paraglidingspots.com", "http://paraglidingspots.com/downloadselect.aspx" },
-            { "DHV Gelände-Datenbank",
-                "https://www.dhv.de/web/piloteninfos/gelaende-luftraum-natur/fluggelaendeflugbetrieb/gelaendedaten/gelaendedaten-download" }
+            { "Paraglidingspots.com", "https://paraglidingspots.com/downloadselect.aspx" },
+            {
+                "DHV Gelände-Datenbank",
+                "https://www.dhv.de/web/piloteninfos/gelaende-luftraum-natur/fluggelaendeflugbetrieb/gelaendedaten/gelaendedaten-download"
+            },
+            { "Tourenwelt.info Jo's Hüttenliste", "http://www.tourenwelt.info/huettenliste/map.php" },
         };
 
         /// <summary>
@@ -49,22 +49,17 @@ namespace WhereToFly.App.Core.ViewModels
         /// <summary>
         /// Location list
         /// </summary>
-        private List<Location> locationList = new List<Location>();
-
-        /// <summary>
-        /// Backing store for FilterText property
-        /// </summary>
-        private string filterText;
-
-        /// <summary>
-        /// Timer that is triggered after filter text was updated
-        /// </summary>
-        private System.Timers.Timer filterTextUpdateTimer = new System.Timers.Timer(1000.0);
+        private List<Location> locationList = new();
 
         /// <summary>
         /// Backing field for "IsListRefreshActive" property
         /// </summary>
         private bool isListRefreshActive;
+
+        /// <summary>
+        /// Backing field for "IsListEmpty" property
+        /// </summary>
+        private bool isListEmpty = true;
 
         /// <summary>
         /// Current position of user; may be null when not retrieved yet
@@ -82,34 +77,38 @@ namespace WhereToFly.App.Core.ViewModels
         /// </summary>
         public string FilterText
         {
-            get
-            {
-                return this.filterText;
-            }
-
-            set
-            {
-                this.filterText = value;
-
-                this.filterTextUpdateTimer.Stop();
-                this.filterTextUpdateTimer.Start();
-            }
+            get => this.appSettings.LastLocationFilterSettings.FilterText;
+            set => this.appSettings.LastLocationFilterSettings.FilterText = value;
         }
+
+        /// <summary>
+        /// Command to execute when find text has finished entering
+        /// </summary>
+        public ICommand FindTextEnteredCommand { get; private set; }
+
+        /// <summary>
+        /// Takeoff directions filter value
+        /// </summary>
+        public TakeoffDirections FilterTakeoffDirections
+        {
+            get => this.appSettings.LastLocationFilterSettings.FilterTakeoffDirections;
+            set => this.appSettings.LastLocationFilterSettings.FilterTakeoffDirections = value;
+        }
+
+        /// <summary>
+        /// Command to execute when user taps on the "filter takeoff directions" view
+        /// </summary>
+        public ICommand FilterTakeoffDirectionsCommand { get; private set; }
 
         /// <summary>
         /// Returns true when the location list has entries, but all entries were filtered out by
         /// the filter text
         /// </summary>
-        public bool AreAllLocationsFilteredOut
-        {
-            get
-            {
-                return this.locationList != null &&
-                    this.locationList.Any() &&
-                    this.LocationList != null &&
-                    !this.LocationList.Any();
-            }
-        }
+        public bool AreAllLocationsFilteredOut =>
+            !this.IsListRefreshActive &&
+            !this.IsListEmpty &&
+            this.LocationList != null &&
+            !this.LocationList.Any();
 
         /// <summary>
         /// Indicates if the refreshing of the location list is currently active, in order to show
@@ -122,32 +121,26 @@ namespace WhereToFly.App.Core.ViewModels
             {
                 this.isListRefreshActive = value;
                 this.OnPropertyChanged(nameof(this.IsListRefreshActive));
+                this.OnPropertyChanged(nameof(this.IsListEmpty));
+                this.OnPropertyChanged(nameof(this.AreAllLocationsFilteredOut));
             }
         }
 
         /// <summary>
         /// Indicates if the track list is empty.
         /// </summary>
-        public bool IsListEmpty
-        {
-            get => !this.isListRefreshActive &&
-                (this.locationList == null || !this.locationList.Any());
-        }
+        public bool IsListEmpty =>
+            !this.IsListRefreshActive && this.isListEmpty;
 
         /// <summary>
-        /// Command to execute when an item in the location list has been tapped
+        /// Stores the selected location when an item is tapped
         /// </summary>
-        public Command<Location> ItemTappedCommand { get; private set; }
+        public LocationListEntryViewModel SelectedLocation { get; set; }
 
         /// <summary>
-        /// Command to execute when "import locations" context action is selected
+        /// Command to execute when "import locations" toolbar item is selected
         /// </summary>
-        public Command ImportLocationsCommand { get; set; }
-
-        /// <summary>
-        /// Command to execute when "add tour plan location" conext action is selected
-        /// </summary>
-        public Command AddTourPlanLocationCommand { get; set; }
+        public ICommand ImportLocationsCommand { get; set; }
         #endregion
 
         /// <summary>
@@ -158,31 +151,17 @@ namespace WhereToFly.App.Core.ViewModels
         {
             this.appSettings = appSettings;
 
-            this.filterText = appSettings.LastLocationListFilterText;
-
-            this.filterTextUpdateTimer.Elapsed += async (sender, args) =>
-            {
-                this.filterTextUpdateTimer.Stop();
-
-                await StoreLastLocationListFilterText(this.FilterText);
-
-                this.UpdateLocationList();
-            };
-
             this.isListRefreshActive = false;
 
             this.SetupBindings();
         }
 
         /// <summary>
-        /// Stores last location list filter text
+        /// Stores last location filter settings
         /// </summary>
-        /// <param name="filterText">filter text to store</param>
         /// <returns>task to wait on</returns>
-        private async Task StoreLastLocationListFilterText(string filterText)
+        private async Task StoreLastLocationFilterSettings()
         {
-            this.appSettings.LastLocationListFilterText = filterText;
-
             var dataService = DependencyService.Get<IDataService>();
             await dataService.StoreAppSettingsAsync(this.appSettings);
         }
@@ -192,37 +171,24 @@ namespace WhereToFly.App.Core.ViewModels
         /// </summary>
         private void SetupBindings()
         {
-            Task.Run(this.LoadDataAsync);
+            this.UpdateLocationList();
 
-            this.ItemTappedCommand =
-                new Command<Location>(async (location) =>
-                {
-                    await this.NavigateToLocationDetails(location);
-                });
+            this.FindTextEnteredCommand =
+                new AsyncCommand(this.OnFindTextEntered);
 
-            this.ImportLocationsCommand =
-                new Command(async () => await this.ImportLocationsAsync());
+            this.FilterTakeoffDirectionsCommand =
+                new AsyncCommand(this.FilterTakeoffDirectionsAsync);
 
-            this.AddTourPlanLocationCommand =
-                new Command<Location>((location) => App.AddTourPlanLocation(location));
+            this.ImportLocationsCommand = new AsyncCommand(this.ImportLocationsAsync);
         }
 
         /// <summary>
-        /// Loads data; async method
+        /// Called when find text was finished entering
         /// </summary>
         /// <returns>task to wait on</returns>
-        private async Task LoadDataAsync()
+        private async Task OnFindTextEntered()
         {
-            try
-            {
-                IDataService dataService = DependencyService.Get<IDataService>();
-
-                this.locationList = await dataService.GetLocationListAsync(CancellationToken.None);
-            }
-            catch (Exception ex)
-            {
-                App.LogError(ex);
-            }
+            await this.StoreLastLocationFilterSettings();
 
             this.UpdateLocationList();
         }
@@ -230,19 +196,24 @@ namespace WhereToFly.App.Core.ViewModels
         /// <summary>
         /// Updates location list based on filter and current position
         /// </summary>
-        private void UpdateLocationList()
+        public void UpdateLocationList()
         {
-            Task.Run(() =>
+            Task.Run(async () =>
             {
                 this.IsListRefreshActive = true;
 
+                IDataService dataService = DependencyService.Get<IDataService>();
+                var locationDataService = dataService.GetLocationDataService();
+
+                this.isListEmpty = await locationDataService.IsListEmpty();
+
+                IEnumerable<Location> localLocationList = await locationDataService.GetList(
+                    this.appSettings.LastLocationFilterSettings);
+
+                this.locationList = localLocationList.ToList();
+
                 var newList = this.locationList
                     .Select(location => new LocationListEntryViewModel(this, location, this.currentPosition));
-
-                if (!string.IsNullOrWhiteSpace(this.filterText))
-                {
-                    newList = newList.Where(viewModel => this.IsFilterMatch(viewModel));
-                }
 
                 if (this.currentPosition != null)
                 {
@@ -252,7 +223,6 @@ namespace WhereToFly.App.Core.ViewModels
                 this.LocationList = new ObservableCollection<LocationListEntryViewModel>(newList);
 
                 this.OnPropertyChanged(nameof(this.LocationList));
-                this.OnPropertyChanged(nameof(this.AreAllLocationsFilteredOut));
                 this.OnPropertyChanged(nameof(this.IsListEmpty));
 
                 this.IsListRefreshActive = false;
@@ -268,13 +238,15 @@ namespace WhereToFly.App.Core.ViewModels
             try
             {
                 IDataService dataService = DependencyService.Get<IDataService>();
+                var locationDataService = dataService.GetLocationDataService();
 
-                var newLocationList = await dataService.GetLocationListAsync(CancellationToken.None);
+                var newLocationList = await locationDataService.GetList(
+                    this.appSettings.LastLocationFilterSettings);
 
-                if (this.locationList.Count != newLocationList.Count ||
-                    !Enumerable.SequenceEqual(this.locationList, newLocationList, new LocationEqualityComparer()))
+                if (!Enumerable.SequenceEqual(this.locationList, newLocationList))
                 {
-                    this.locationList = newLocationList;
+                    this.isListEmpty = await locationDataService.IsListEmpty();
+                    this.locationList = newLocationList.ToList();
 
                     this.UpdateLocationList();
                 }
@@ -286,46 +258,23 @@ namespace WhereToFly.App.Core.ViewModels
         }
 
         /// <summary>
-        /// Checks if given location (represented by a view model) is a current filter match,
-        /// based on the filter text.
+        /// Shows the "filter takeoff directions popup page
         /// </summary>
-        /// <param name="viewModel">location view model to check</param>
-        /// <returns>matching filter</returns>
-        private bool IsFilterMatch(LocationListEntryViewModel viewModel)
+        /// <returns>task to wait on</returns>
+        public async Task FilterTakeoffDirectionsAsync()
         {
-            if (string.IsNullOrWhiteSpace(this.filterText))
+            var result = await FilterTakeoffDirectionsPopupPage.ShowAsync(
+                this.appSettings.LastLocationFilterSettings);
+
+            if (result != null)
             {
-                return true;
+                this.appSettings.LastLocationFilterSettings = result;
+                this.OnPropertyChanged(nameof(this.FilterTakeoffDirections));
+
+                await this.StoreLastLocationFilterSettings();
+
+                this.UpdateLocationList();
             }
-
-            string text = this.filterText;
-            var location = viewModel.Location;
-
-            bool inName = location.Name != null &&
-                location.Name.IndexOf(text, 0, StringComparison.OrdinalIgnoreCase) >= 0;
-
-            bool inDescription = !inName &&
-                location.Description != null &&
-                location.Description.IndexOf(text, 0, StringComparison.OrdinalIgnoreCase) >= 0;
-
-            bool inInternetLink = !inDescription &&
-                location.InternetLink != null &&
-                location.InternetLink.IndexOf(text, 0, StringComparison.OrdinalIgnoreCase) >= 0;
-
-            bool inMapLocation = !inInternetLink &&
-                location.MapLocation != null &&
-                location.MapLocation.ToString().IndexOf(text, 0, StringComparison.OrdinalIgnoreCase) >= 0;
-
-            bool inDistance = !inMapLocation &&
-                Math.Abs(viewModel.Distance) > 1e-6 &&
-                DataFormatter.FormatDistance(viewModel.Distance).IndexOf(text, 0, StringComparison.OrdinalIgnoreCase) >= 0;
-
-            return
-                inName ||
-                inDescription ||
-                inInternetLink ||
-                inMapLocation ||
-                inDistance;
         }
 
         /// <summary>
@@ -335,7 +284,7 @@ namespace WhereToFly.App.Core.ViewModels
         /// <returns>task to wait on</returns>
         internal async Task NavigateToLocationDetails(Location location)
         {
-            await NavigationService.Instance.NavigateAsync(Constants.PageKeyLocationDetailsPage, true, location);
+            await NavigationService.Instance.NavigateAsync(PageKey.LocationDetailsPage, true, location);
         }
 
         /// <summary>
@@ -345,10 +294,29 @@ namespace WhereToFly.App.Core.ViewModels
         /// <returns>task to wait on</returns>
         internal async Task ZoomToLocation(Location location)
         {
-            App.ZoomToLocation(location.MapLocation);
+            await App.UpdateLastShownPositionAsync(location.MapLocation);
 
-            App.UpdateMapLocationsList();
-            await NavigationService.Instance.NavigateAsync(Constants.PageKeyMapPage, animated: true);
+            App.MapView.ZoomToLocation(location.MapLocation);
+
+            await NavigationService.GoToMap();
+        }
+
+        /// <summary>
+        /// Returns to map view and sets the compass target
+        /// </summary>
+        /// <param name="location">location to use as target</param>
+        /// <returns>task to wait on</returns>
+        internal async Task SetAsCompassTarget(Location location)
+        {
+            var compassTarget = new CompassTarget
+            {
+                Title = location.Name,
+                TargetLocation = location.MapLocation,
+            };
+
+            await App.SetCompassTarget(compassTarget);
+
+            await NavigationService.GoToMap();
         }
 
         /// <summary>
@@ -361,7 +329,7 @@ namespace WhereToFly.App.Core.ViewModels
             {
                 "Import included",
                 "Import from storage",
-                "Download from web"
+                "Download from web",
             };
 
             string result = await App.Current.MainPage.DisplayActionSheet(
@@ -407,13 +375,18 @@ namespace WhereToFly.App.Core.ViewModels
                 return;
             }
 
-            var platform = DependencyService.Get<IPlatform>();
-            using (var stream = platform.OpenAssetStream("locations/" + assetFilename))
+            if (assetFilename == "default")
             {
+                await OpenFileHelper.AddDefaultLocationListAsync();
+            }
+            else
+            {
+                var platform = DependencyService.Get<IPlatform>();
+                using var stream = platform.OpenAssetStream("locations/" + assetFilename);
                 await OpenFileHelper.OpenLocationListAsync(stream, assetFilename);
             }
 
-            await this.ReloadLocationListAsync();
+            this.UpdateLocationList();
         }
 
         /// <summary>
@@ -443,22 +416,29 @@ namespace WhereToFly.App.Core.ViewModels
         /// <returns>task to wait on</returns>
         private async Task ImportFromStorageAsync()
         {
-            FileData result;
             try
             {
-                string[] fileTypes = null;
-
-                if (Device.RuntimePlatform == Device.UWP)
+                var options = new Xamarin.Essentials.PickOptions
                 {
-                    fileTypes = new string[] { ".kml", ".kmz", ".gpx" };
-                }
+                    FileTypes = new Xamarin.Essentials.FilePickerFileType(
+                        new Dictionary<Xamarin.Essentials.DevicePlatform, IEnumerable<string>>
+                        {
+                            { Xamarin.Essentials.DevicePlatform.Android, null },
+                            { Xamarin.Essentials.DevicePlatform.UWP, new string[] { ".kml", ".kmz", ".gpx", ".cup" } },
+                            { Xamarin.Essentials.DevicePlatform.iOS, null },
+                        }),
+                    PickerTitle = "Select a Location file to import",
+                };
 
-                result = await CrossFilePicker.Current.PickFile(fileTypes);
+                var result = await Xamarin.Essentials.FilePicker.PickAsync(options);
                 if (result == null ||
-                    string.IsNullOrEmpty(result.FilePath))
+                    string.IsNullOrEmpty(result.FullPath))
                 {
                     return;
                 }
+
+                using var stream = await result.OpenReadAsync();
+                await OpenFileHelper.OpenLocationListAsync(stream, result.FileName);
             }
             catch (Exception ex)
             {
@@ -472,12 +452,7 @@ namespace WhereToFly.App.Core.ViewModels
                 return;
             }
 
-            using (var stream = result.GetStream())
-            {
-                await OpenFileHelper.OpenLocationListAsync(stream, result.FileName);
-            }
-
-            await this.ReloadLocationListAsync();
+            this.UpdateLocationList();
         }
 
         /// <summary>
@@ -501,7 +476,9 @@ namespace WhereToFly.App.Core.ViewModels
 
             string webSiteToOpen = this.downloadWebSiteList[result];
 
-            Device.OpenUri(new Uri(webSiteToOpen));
+            await Xamarin.Essentials.Browser.OpenAsync(
+                webSiteToOpen,
+                Xamarin.Essentials.BrowserLaunchMode.External);
         }
 
         /// <summary>
@@ -514,14 +491,16 @@ namespace WhereToFly.App.Core.ViewModels
             this.locationList.Remove(location);
 
             var dataService = DependencyService.Get<IDataService>();
-            await dataService.StoreLocationListAsync(this.locationList);
+            var locationDataService = dataService.GetLocationDataService();
 
-            var liveWaypointRefreshService = DependencyService.Get<LiveWaypointRefreshService>();
-            liveWaypointRefreshService.UpdateLiveWaypointList(this.locationList);
+            await locationDataService.Remove(location.Id);
+
+            var liveWaypointRefreshService = DependencyService.Get<LiveDataRefreshService>();
+            liveWaypointRefreshService.RemoveLiveWaypoint(location.Id);
 
             this.UpdateLocationList();
 
-            App.UpdateMapLocationsList();
+            App.MapView.RemoveLocation(location.Id);
 
             App.ShowToast("Selected location was deleted.");
         }
@@ -544,26 +523,18 @@ namespace WhereToFly.App.Core.ViewModels
             }
 
             var dataService = DependencyService.Get<IDataService>();
-            await dataService.StoreLocationListAsync(new List<Location>());
+            var locationDataService = dataService.GetLocationDataService();
 
-            var liveWaypointRefreshService = DependencyService.Get<LiveWaypointRefreshService>();
+            await locationDataService.ClearList();
+
+            var liveWaypointRefreshService = DependencyService.Get<LiveDataRefreshService>();
             liveWaypointRefreshService.ClearLiveWaypointList();
 
-            await this.ReloadLocationListAsync();
+            this.UpdateLocationList();
 
-            App.UpdateMapLocationsList();
+            App.MapView.ClearLocationList();
 
             App.ShowToast("Location list was cleared.");
-        }
-
-        /// <summary>
-        /// Reloads location list and shows it on the page
-        /// </summary>
-        /// <returns>task to wait on</returns>
-        public async Task ReloadLocationListAsync()
-        {
-            await this.LoadDataAsync();
-            this.UpdateLocationList();
         }
 
         /// <summary>
@@ -572,49 +543,11 @@ namespace WhereToFly.App.Core.ViewModels
         /// </summary>
         /// <param name="sender">sender object</param>
         /// <param name="args">event args, including position</param>
-        public void OnPositionChanged(object sender, PositionEventArgs args)
+        public void OnPositionChanged(object sender, GeolocationEventArgs args)
         {
-            this.currentPosition = new MapPoint(args.Position.Latitude, args.Position.Longitude, args.Position.Altitude);
+            this.currentPosition = args.Point;
 
             this.UpdateLocationList();
         }
-
-        #region IDisposable Support
-        /// <summary>
-        /// To detect redundant calls
-        /// </summary>
-        private bool disposedValue = false;
-
-        /// <summary>
-        /// Disposes of managed and unmanaged resources
-        /// </summary>
-        /// <param name="disposing">
-        /// true when called from Dispose(), false when called from finalizer
-        /// </param>
-        protected virtual void Dispose(bool disposing)
-        {
-            if (!this.disposedValue)
-            {
-                if (disposing)
-                {
-                    this.filterTextUpdateTimer.Stop();
-                    this.filterTextUpdateTimer.Dispose();
-                    this.filterTextUpdateTimer = null;
-                }
-
-                this.disposedValue = true;
-            }
-        }
-
-        /// <summary>
-        /// This code added to correctly implement the disposable pattern.
-        /// </summary>
-        public void Dispose()
-        {
-            // Do not change this code. Put cleanup code in Dispose(bool disposing) above.
-            this.Dispose(true);
-            GC.SuppressFinalize(this);
-        }
-        #endregion
     }
 }

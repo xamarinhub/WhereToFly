@@ -1,14 +1,12 @@
 ﻿using WhereToFly.App.Core.ViewModels;
-using WhereToFly.App.Model;
+using WhereToFly.Geo.Model;
 using Xamarin.Forms;
-using Xamarin.Forms.Xaml;
 
 namespace WhereToFly.App.Core.Views
 {
     /// <summary>
     /// Page to display location details
     /// </summary>
-    [XamlCompilation(XamlCompilationOptions.Compile)]
     public partial class LocationDetailsPage : ContentPage
     {
         /// <summary>
@@ -44,13 +42,13 @@ namespace WhereToFly.App.Core.Views
         /// </summary>
         private void AddLiveWaypointRefreshToolbarButton()
         {
-            ToolbarItem refreshLiveWaypointButton = new ToolbarItem(
+            var refreshLiveWaypointButton = new ToolbarItem(
                 "Refresh live waypoint",
                 Converter.ImagePathConverter.GetDeviceDependentImage("refresh"),
                 this.OnClicked_ToolbarButtonRefreshLiveWaypoint,
                 ToolbarItemOrder.Primary)
             {
-                AutomationId = "RefreshLiveWaypoint"
+                AutomationId = "RefreshLiveWaypoint",
             };
 
             this.ToolbarItems.Add(refreshLiveWaypointButton);
@@ -69,13 +67,13 @@ namespace WhereToFly.App.Core.Views
         /// </summary>
         private void AddTourPlanLocationToolbarButton()
         {
-            ToolbarItem addTourPlanLocationButton = new ToolbarItem(
+            var addTourPlanLocationButton = new ToolbarItem(
                 "Add tour plan location",
                 Converter.ImagePathConverter.GetDeviceDependentImage("map_marker_plus"),
                 this.OnClicked_ToolbarButtonAddTourPlanLocation,
                 ToolbarItemOrder.Secondary)
             {
-                AutomationId = "AddTourPlanLocation"
+                AutomationId = "AddTourPlanLocation",
             };
 
             this.ToolbarItems.Add(addTourPlanLocationButton);

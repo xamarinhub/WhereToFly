@@ -1,11 +1,13 @@
 ﻿using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.OpenApi.Models;
 using System;
 using System.IO;
 using WhereToFly.WebApi.Logic;
+using WhereToFly.WebApi.Logic.Services;
 using WhereToFly.WebApi.Logic.TourPlanning;
 
 namespace WhereToFly.WebApi.LiveWaypoints
@@ -15,6 +17,11 @@ namespace WhereToFly.WebApi.LiveWaypoints
     /// </summary>
     public class Startup
     {
+        /// <summary>
+        /// CORS policy name for debug mode
+        /// </summary>
+        private const string DebugCorsPolicyName = "DebugCorsPolicy";
+
         /// <summary>
         /// Starts up WebAPI project
         /// </summary>
@@ -36,15 +43,27 @@ namespace WhereToFly.WebApi.LiveWaypoints
         /// <param name="services">service collection</param>
         public void ConfigureServices(IServiceCollection services)
         {
-            services.AddMvc()
-                .SetCompatibilityVersion(CompatibilityVersion.Version_2_2);
+            services.AddCors(options =>
+            {
+                options.AddPolicy(
+                    DebugCorsPolicyName,
+                    builder =>
+                    {
+                        builder.AllowAnyOrigin()
+                        .AllowAnyMethod()
+                        .AllowAnyHeader();
+                    });
+            });
+
+            services.AddControllers()
+                .AddNewtonsoftJson();
 
             // Register the Swagger generator, defining one or more Swagger documents
             services.AddSwaggerGen(c =>
             {
                 c.SwaggerDoc(
                     "v1",
-                    new Swashbuckle.AspNetCore.Swagger.Info
+                    new OpenApiInfo
                     {
                         Title = "WhereToFly Web API",
                         Version = "v1"
@@ -69,7 +88,10 @@ namespace WhereToFly.WebApi.LiveWaypoints
         /// <param name="services">service collection</param>
         private static void AddLogicServices(IServiceCollection services)
         {
+            services.AddSingleton<GarminInreachDataService>();
             services.AddSingleton<LiveWaypointCacheManager>();
+            services.AddSingleton<LiveTrackCacheManager>();
+            services.AddSingleton<LocationFindManager>();
 
             // confiugre and add tour planning engine
             var logicAssembly = typeof(PlanTourEngine).Assembly;
@@ -86,8 +108,8 @@ namespace WhereToFly.WebApi.LiveWaypoints
         /// pipeline.
         /// </summary>
         /// <param name="app">application builder</param>
-        /// <param name="env">hosting environment</param>
-        public void Configure(IApplicationBuilder app, IHostingEnvironment env)
+        /// <param name="env">web host environment</param>
+        public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
         {
             if (env.IsDevelopment())
             {
@@ -101,6 +123,7 @@ namespace WhereToFly.WebApi.LiveWaypoints
                 {
                     const string SwaggerUrl = "/swagger/v1/swagger.json";
                     c.SwaggerEndpoint(SwaggerUrl, "WhereToFly Web API V1");
+                    c.RoutePrefix = string.Empty;
                 });
             }
             else
@@ -109,7 +132,17 @@ namespace WhereToFly.WebApi.LiveWaypoints
             }
 
             app.UseHttpsRedirection();
-            app.UseMvc();
+            app.UseRouting();
+
+            if (env.IsDevelopment())
+            {
+                app.UseCors(DebugCorsPolicyName);
+            }
+
+            app.UseEndpoints(endpoints =>
+            {
+                endpoints.MapControllers();
+            });
         }
     }
 }

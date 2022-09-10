@@ -1,10 +1,7 @@
-﻿using Plugin.Geolocator.Abstractions;
-using System;
+﻿using System;
 using System.Threading.Tasks;
-using WhereToFly.App.Core.Services;
 using WhereToFly.App.Core.ViewModels;
 using Xamarin.Forms;
-using Xamarin.Forms.Xaml;
 
 namespace WhereToFly.App.Core.Views
 {
@@ -12,7 +9,6 @@ namespace WhereToFly.App.Core.Views
     /// Page to display location list; the list can be filtered by a filter text, and a single
     /// location entry can be tapped to get more infos.
     /// </summary>
-    [XamlCompilation(XamlCompilationOptions.Compile)]
     public partial class LocationListPage : ContentPage
     {
         /// <summary>
@@ -21,9 +17,9 @@ namespace WhereToFly.App.Core.Views
         private readonly LocationListViewModel viewModel;
 
         /// <summary>
-        /// Geo locator to use for position updates
+        /// Geolocation service to use for position updates
         /// </summary>
-        private readonly IGeolocator geolocator;
+        private readonly IGeolocationService geolocationService;
 
         /// <summary>
         /// Indicates if import page was started; used to update location list when returning to
@@ -40,7 +36,7 @@ namespace WhereToFly.App.Core.Views
 
             this.InitializeComponent();
 
-            this.geolocator = DependencyService.Get<GeolocationService>().Geolocator;
+            this.geolocationService = DependencyService.Get<IGeolocationService>();
 
             this.BindingContext = this.viewModel = new LocationListViewModel(App.Settings);
 
@@ -63,13 +59,13 @@ namespace WhereToFly.App.Core.Views
         /// </summary>
         private void AddImportLocationsToolbarButton()
         {
-            ToolbarItem importLocationsButton = new ToolbarItem(
+            var importLocationsButton = new ToolbarItem(
                 "Import locations",
                 Converter.ImagePathConverter.GetDeviceDependentImage("playlist_plus"),
                 this.OnClicked_ToolbarButtonImportLocations,
                 ToolbarItemOrder.Primary)
             {
-                AutomationId = "ImportLocations"
+                AutomationId = "ImportLocations",
             };
 
             this.ToolbarItems.Add(importLocationsButton);
@@ -88,13 +84,13 @@ namespace WhereToFly.App.Core.Views
         /// </summary>
         private void AddDeleteLocationListToolbarButton()
         {
-            ToolbarItem deleteLocationListButton = new ToolbarItem(
+            var deleteLocationListButton = new ToolbarItem(
                 "Delete location list",
                 Converter.ImagePathConverter.GetDeviceDependentImage("delete_forever"),
                 async () => await this.OnClicked_ToolbarButtonDeleteLocationList(),
                 ToolbarItemOrder.Primary)
             {
-                AutomationId = "DeleteLocationList"
+                AutomationId = "DeleteLocationList",
             };
 
             this.ToolbarItems.Add(deleteLocationListButton);
@@ -117,56 +113,13 @@ namespace WhereToFly.App.Core.Views
         private async Task InitPositionAsync()
         {
             var position =
-                await this.geolocator.GetPositionAsync(timeout: TimeSpan.FromSeconds(1), includeHeading: false);
+                await this.geolocationService.GetPositionAsync(timeout: TimeSpan.FromSeconds(1));
 
             if (position != null)
             {
                 this.viewModel.OnPositionChanged(
                     this,
-                    new PositionEventArgs(position));
-            }
-        }
-
-        /// <summary>
-        /// Called when an item was tapped on the location list
-        /// </summary>
-        /// <param name="sender">sender object</param>
-        /// <param name="args">event args</param>
-        private void OnItemTapped_LocationsListView(object sender, ItemTappedEventArgs args)
-        {
-            var localViewModel = this.BindingContext as LocationListViewModel;
-
-            var locationListEntryViewModel = args.Item as LocationListEntryViewModel;
-            localViewModel.ItemTappedCommand.Execute(locationListEntryViewModel.Location);
-        }
-
-        /// <summary>
-        /// Called when the binding context of the view cell has changed
-        /// </summary>
-        /// <param name="sender">sender object</param>
-        /// <param name="args">event args</param>
-        private void OnViewCellBindingContextChanged(object sender, EventArgs args)
-        {
-            base.OnBindingContextChanged();
-
-            ViewCell viewCell = (ViewCell)sender;
-            var cellViewModel = viewCell.BindingContext as LocationListEntryViewModel;
-
-            if (cellViewModel != null &&
-                cellViewModel.Location.IsPlanTourLocation)
-            {
-                viewCell.ContextActions.Add(
-                    new MenuItem
-                    {
-                        Text = "Add tour plan location",
-                        IconImageSource = new FileImageSource
-                        {
-                            File = Converter.ImagePathConverter.GetDeviceDependentImage("map_marker_plus")
-                        },
-                        Command = this.viewModel.AddTourPlanLocationCommand,
-                        CommandParameter = cellViewModel.Location,
-                        AutomationId = "AddTourPlanLocation"
-                    });
+                    new GeolocationEventArgs(position));
             }
         }
 
@@ -182,7 +135,7 @@ namespace WhereToFly.App.Core.Views
             {
                 this.reloadLocationListOnAppearing = false;
 
-                Task.Run(this.viewModel.ReloadLocationListAsync);
+                this.viewModel.UpdateLocationList();
             }
             else
             {
@@ -191,10 +144,10 @@ namespace WhereToFly.App.Core.Views
 
             Task.Run(async () =>
             {
-                var position = await this.geolocator.GetPositionAsync(TimeSpan.FromSeconds(1));
+                var position = await this.geolocationService.GetPositionAsync(TimeSpan.FromSeconds(1));
                 if (position != null)
                 {
-                    this.viewModel.OnPositionChanged(this, new PositionEventArgs(position));
+                    this.viewModel.OnPositionChanged(this, new GeolocationEventArgs(position));
                 }
             });
         }

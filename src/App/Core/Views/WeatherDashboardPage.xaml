@@ -1,21 +1,35 @@
 ﻿<?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://xamarin.com/schemas/2014/forms"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:ffimageloadingsvg="clr-namespace:FFImageLoading.Svg.Forms;assembly=FFImageLoading.Svg.Forms"
              xmlns:converter="clr-namespace:WhereToFly.App.Core.Converter"
-             x:Class="WhereToFly.App.Core.Views.WeatherDashboardPage">
+             xmlns:viewmodels="clr-namespace:WhereToFly.App.Core.ViewModels"
+             x:Class="WhereToFly.App.Core.Views.WeatherDashboardPage"
+             Title="Weather"
+             BackgroundColor="{DynamicResource PageBackgroundColor}">
+
+    <ContentPage.BindingContext>
+        <viewmodels:WeatherDashboardViewModel />
+    </ContentPage.BindingContext>
 
     <ContentPage.Resources>
         <ResourceDictionary>
             <converter:ImagePathConverter x:Key="ImagePathConverter" />
-            <x:String x:Key="AddNewImageBaseName">playlist_plus</x:String>
+            <x:String x:Key="AddIconImageBaseName">playlist_plus</x:String>
+            <x:String x:Key="AddWebLinkImageBaseName">bookmark_plus_outline</x:String>
             <x:String x:Key="ClearAllImageBaseName">delete</x:String>
         </ResourceDictionary>
     </ContentPage.Resources>
 
     <ContentPage.ToolbarItems>
-        <ToolbarItem Name="Add new"
-                     Icon="{Binding Source={StaticResource AddNewImageBaseName}, Converter={StaticResource ImagePathConverter}}"
-                     Command="{Binding AddNewCommand}"
+        <ToolbarItem Name="Add icon"
+                     Icon="{Binding Source={StaticResource AddIconImageBaseName}, Converter={StaticResource ImagePathConverter}}"
+                     Command="{Binding AddIconCommand}"
+                     Order="Primary" Priority="0" />
+
+        <ToolbarItem Name="Add web link"
+                     Icon="{Binding Source={StaticResource AddWebLinkImageBaseName}, Converter={StaticResource ImagePathConverter}}"
+                     Command="{Binding AddWebLinkCommand}"
                      Order="Primary" Priority="0" />
 
         <ToolbarItem Name="Clear all"
@@ -29,13 +43,40 @@
         <!-- Scrollable flex layout containing all weather icons -->
         <ScrollView Orientation="Vertical">
             <FlexLayout x:Name="dashboardFlexLayout"
+                        BindableLayout.ItemsSource="{Binding WeatherDashboardItems}"
                         Direction="Row"
                         AlignItems="Start"
                         AlignContent="Start"
                         JustifyContent="Start"
-                        Wrap="Wrap"
-                        BackgroundColor="White">
-                <!-- Controls are added by page dynamically -->
+                        Wrap="Wrap">
+                <BindableLayout.ItemTemplate>
+                    <DataTemplate>
+                        <!-- Square/rectangular layout -->
+                        <StackLayout WidthRequest="{OnPlatform Android=90, UWP=120}"
+                                     HeightRequest="{OnPlatform Android=110, UWP=120}"
+                                     Margin="16,16,0,0"
+                                     BackgroundColor="{DynamicResource ListViewItemBackgroundColor}">
+
+                            <!-- Recognize taps anywhere in the layout -->
+                            <StackLayout.GestureRecognizers>
+                                <TapGestureRecognizer NumberOfTapsRequired="1" Command="{Binding Tapped}" />
+                            </StackLayout.GestureRecognizers>
+
+                            <!-- Controls -->
+                            <ffimageloadingsvg:SvgCachedImage Source="{Binding Icon, Mode=OneWay}"
+                                                              ReplaceStringMap="{DynamicResource SvgImageFillDark}"
+                                                              WidthRequest="50" HeightRequest="50" Margin="4,4,0,0" />
+
+                            <Label Text="{Binding Title, Mode=OneTime}"
+                                   FontSize="{OnPlatform Android=Medium, UWP=Small}"
+                                   TextColor="{DynamicResource ElementTextColor}"
+                                   LineBreakMode="WordWrap"
+                                   HorizontalTextAlignment="Center" VerticalTextAlignment="Start"
+                                   HeightRequest="48" Margin="4,0,4,4"
+                                   VerticalOptions="FillAndExpand" />
+                        </StackLayout>
+                    </DataTemplate>
+                </BindableLayout.ItemTemplate>
             </FlexLayout>
         </ScrollView>
     </ContentPage.Content>

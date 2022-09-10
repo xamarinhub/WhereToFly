@@ -1,5 +1,5 @@
-﻿using Android.Content;
-using Plugin.CurrentActivity;
+using AndroidX.AppCompat.App;
+using System;
 using System.IO;
 using WhereToFly.App.Core;
 using Xamarin.Forms;
@@ -14,46 +14,9 @@ namespace WhereToFly.App.Android
     public class AndroidPlatform : IPlatform
     {
         /// <summary>
-        /// Returns current context, either from current activity, or the global application
-        /// context
-        /// </summary>
-        internal static Context CurrentContext
-        {
-            get
-            {
-                return CrossCurrentActivity.Current.Activity ?? global::Android.App.Application.Context;
-            }
-        }
-
-        /// <summary>
-        /// Property containing the Android app data folder
-        /// </summary>
-        public string AppDataFolder
-        {
-            get
-            {
-                return CurrentContext.FilesDir.AbsolutePath;
-            }
-        }
-
-        /// <summary>
-        /// Property containing the Android cache data folder
-        /// </summary>
-        public string CacheDataFolder
-        {
-            get
-            {
-                return CurrentContext.CacheDir.AbsolutePath;
-            }
-        }
-
-        /// <summary>
         /// Base path to use in WebView control, for Android
         /// </summary>
-        public string WebViewBasePath
-        {
-            get { return "file:///android_asset/"; }
-        }
+        public string WebViewBasePath => "file:///android_asset/";
 
         /// <summary>
         /// Opens asset stream and returns it
@@ -62,7 +25,7 @@ namespace WhereToFly.App.Android
         /// <returns>stream to read from file</returns>
         public Stream OpenAssetStream(string assetFilename)
         {
-            var assetManager = CurrentContext.Assets;
+            var assetManager = global::Android.App.Application.Context.Assets;
 
             return assetManager.Open(assetFilename);
         }
@@ -74,26 +37,56 @@ namespace WhereToFly.App.Android
         /// <returns>text content of asset</returns>
         public string LoadAssetText(string assetFilename)
         {
-            using (var stream = this.OpenAssetStream(assetFilename))
-            using (var streamReader = new StreamReader(stream))
-            {
-                return streamReader.ReadToEnd();
-            }
+            using var stream = this.OpenAssetStream(assetFilename);
+            using var streamReader = new StreamReader(stream);
+            return streamReader.ReadToEnd();
         }
 
         /// <summary>
-        /// Loads binary data of asset file from given filename
+        /// Sets app theme to use for platform. This ensures that platform dependent dialogs are
+        /// themed correctly when switching themes.
         /// </summary>
-        /// <param name="assetFilename">asset filename</param>
-        /// <returns>binary content of asset</returns>
-        public byte[] LoadAssetBinaryData(string assetFilename)
+        /// <param name="requestedTheme">requested theme</param>
+        public void SetPlatformTheme(OSAppTheme requestedTheme)
         {
-            using (var stream = this.OpenAssetStream(assetFilename))
-            using (var memoryStream = new MemoryStream())
+            AppCompatDelegate.DefaultNightMode = requestedTheme switch
             {
-                stream.CopyTo(memoryStream);
-                return memoryStream.GetBuffer();
-            }
+                OSAppTheme.Dark => AppCompatDelegate.ModeNightYes,
+                OSAppTheme.Light => AppCompatDelegate.ModeNightNo,
+                _ => AppCompatDelegate.ModeNightFollowSystem,
+            };
+        }
+
+        /// <summary>
+        /// Translates the compass' magnetic north heading (e.g. from Xamarin.Essentials.Compass
+        /// API) to true north. On Android this is done using the GeomagneticField class that
+        /// returns the magnetic declination on the given coordinates
+        /// </summary>
+        /// <param name="headingMagneticNorthInDegrees">magnetic north heading</param>
+        /// <param name="latitudeInDegrees">latitude of current position</param>
+        /// <param name="longitudeInDegrees">longitude of current position</param>
+        /// <param name="altitudeInMeter">altitude of current position</param>
+        /// <param name="headingTrueNorthInDegrees">true north heading</param>
+        /// <returns>true when tralslating was successful, false when not available</returns>
+        public bool TranslateCompassMagneticNorthToTrueNorth(
+            int headingMagneticNorthInDegrees,
+            double latitudeInDegrees,
+            double longitudeInDegrees,
+            double altitudeInMeter,
+            out int headingTrueNorthInDegrees)
+        {
+            long millisecondsSinceEpoch = DateTimeOffset.Now.ToUnixTimeMilliseconds();
+
+            var geomagneticField = new global::Android.Hardware.GeomagneticField(
+                (float)latitudeInDegrees,
+                (float)longitudeInDegrees,
+                (float)altitudeInMeter,
+                millisecondsSinceEpoch);
+
+            headingTrueNorthInDegrees =
+                (int)(headingMagneticNorthInDegrees + geomagneticField.Declination);
+
+            return true;
         }
     }
 }

@@ -1,12 +1,44 @@
 ﻿<?xml version="1.0" encoding="utf-8" ?>
 <Application xmlns="http://xamarin.com/schemas/2014/forms"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:d="http://xamarin.com/schemas/2014/forms/design"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d"
              x:Class="WhereToFly.App.Core.App">
     <Application.Resources>
 
-        <!-- application resource dictionary -->
+        <ResourceDictionary Source="Styles/LightTheme.xaml" />
+
         <ResourceDictionary>
-            <Color x:Key="primaryColor">#2F299E</Color>
+
+            <!-- Control theming -->
+            <Style TargetType="Picker">
+                <Setter Property="BackgroundColor" Value="{DynamicResource ElementBackgroundColor}" />
+                <Setter Property="TextColor" Value="{DynamicResource ElementTextColor}" />
+                <Setter Property="TitleColor" Value="{DynamicResource ElementTextColor}" />
+            </Style>
+
+            <Style TargetType="Entry">
+                <Setter Property="BackgroundColor" Value="{DynamicResource ElementBackgroundColor}" />
+                <Setter Property="TextColor" Value="{DynamicResource ElementTextColor}" />
+                <Setter Property="PlaceholderColor" Value="{DynamicResource EntryPlaceholderTextColor}"/>
+            </Style>
+
+            <Style TargetType="Label">
+                <Setter Property="TextColor" Value="{DynamicResource LabelTextColor}" />
+            </Style>
+
+            <Style TargetType="Button">
+                <Setter Property="TextColor" Value="{DynamicResource ElementTextColor}" />
+                <Setter Property="BackgroundColor" Value="{DynamicResource ButtonBackgroundColor}" />
+                <Setter Property="TextTransform" Value="None" />
+            </Style>
+
+            <Style TargetType="TabbedPage">
+                <Setter Property="BarBackgroundColor" Value="{DynamicResource ElementBackgroundColor}" />
+                <Setter Property="BarTextColor" Value="{DynamicResource ElementTextColor}" />
+            </Style>
+
         </ResourceDictionary>
 
     </Application.Resources>

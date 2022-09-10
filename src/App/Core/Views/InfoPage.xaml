@@ -1,0 +1,71 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://xamarin.com/schemas/2014/forms"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:d="http://xamarin.com/schemas/2014/forms/design"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:controls="clr-namespace:WhereToFly.App.Core.Controls"
+             xmlns:viewmodels="clr-namespace:WhereToFly.App.Core.ViewModels"
+             mc:Ignorable="d"
+             x:Class="WhereToFly.App.Core.Views.InfoPage"
+             Title="Info"
+             BackgroundColor="{DynamicResource PageBackgroundColor}">
+
+    <ContentPage.BindingContext>
+        <viewmodels:InfoPageViewModel />
+    </ContentPage.BindingContext>
+
+    <ContentPage.Content>
+
+        <!-- Stacked carousel and indicator views -->
+        <StackLayout Orientation="Vertical" VerticalOptions="FillAndExpand">
+
+            <!-- Carousel showing the info pages -->
+            <CarouselView ItemsSource="{Binding Pages}"
+                          Loop="False"
+                          IndicatorView="indicatorView"
+                          PeekAreaInsets="10"
+                          HorizontalOptions="Start"
+                          ItemsUpdatingScrollMode="KeepItemsInView"
+                          BackgroundColor="{DynamicResource ManualBackgroundColor}">
+
+                <!-- Stop on full carousel items -->
+                <CarouselView.ItemsLayout>
+                    <LinearItemsLayout Orientation="Horizontal"
+                                       ItemSpacing="10"
+                                       SnapPointsAlignment="Start"
+                                       SnapPointsType="MandatorySingle" />
+                </CarouselView.ItemsLayout>
+
+                <CarouselView.ItemTemplate>
+                    <DataTemplate>
+
+                        <!-- Header image and a webview, both scrollable -->
+                        <StackLayout VerticalOptions="Fill" Margin="20">
+                            <ScrollView>
+                                <StackLayout Padding="0,0,0,10">
+                                    <Image Source="{Binding Image, Mode=OneTime}" />
+                                    <controls:AutoResizeWebView HorizontalOptions="FillAndExpand"
+                                                                VerticalOptions="FillAndExpand"
+                                                                HeightRequest="20"
+                                                                Navigating="OnNavigating_WebView"
+                                                                Source="{Binding WebViewSource}" />
+                                </StackLayout>
+                            </ScrollView>
+                        </StackLayout>
+                    </DataTemplate>
+
+                </CarouselView.ItemTemplate>
+            </CarouselView>
+
+            <!-- Indicator showing current position in carousel -->
+            <IndicatorView x:Name="indicatorView"
+                           IndicatorColor="LightGray"
+                           SelectedIndicatorColor="{DynamicResource PrimaryColor}"
+                           IndicatorSize="16"
+                           HeightRequest="40"
+                           HorizontalOptions="Center"
+                           VerticalOptions="End" />
+        </StackLayout>
+
+    </ContentPage.Content>
+</ContentPage>

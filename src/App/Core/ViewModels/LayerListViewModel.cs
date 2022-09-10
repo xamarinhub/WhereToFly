@@ -1,13 +1,13 @@
-﻿using Plugin.FilePicker;
-using Plugin.FilePicker.Abstractions;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
-using System.Threading;
 using System.Threading.Tasks;
+using System.Windows.Input;
 using WhereToFly.App.Core.Services;
-using WhereToFly.Shared.Model;
+using WhereToFly.Geo.Model;
+using Xamarin.CommunityToolkit.ObjectModel;
+using Xamarin.Essentials;
 using Xamarin.Forms;
 
 namespace WhereToFly.App.Core.ViewModels
@@ -18,9 +18,21 @@ namespace WhereToFly.App.Core.ViewModels
     public class LayerListViewModel : ViewModelBase
     {
         /// <summary>
+        /// A mapping of display string to website address to open
+        /// </summary>
+        private readonly Dictionary<string, string> downloadWebSiteList = new()
+        {
+            { "vividos' Where-to-fly resources", "http://www.vividos.de/wheretofly/index.html" },
+            { "XContest Airspaces", "https://airspace.xcontest.org/" },
+            { "DHV-XC Lufträume", "https://www.dhv-xc.de/xc/modules/leonardo/index.php?name=leonardo&op=luftraum" },
+            { "OpenAir Schutzzonen", "https://www.openairschutzzonen.de/" },
+            { "Flyland.ch Lufträume", "http://www.flyland.ch/download.php" },
+        };
+
+        /// <summary>
         /// Layer list backing store
         /// </summary>
-        private List<Layer> layerList = new List<Layer>();
+        private List<Layer> layerList = new();
 
         #region Binding properties
         /// <summary>
@@ -29,12 +41,20 @@ namespace WhereToFly.App.Core.ViewModels
         public ObservableCollection<LayerListEntryViewModel> LayerList { get; set; }
 
         /// <summary>
-        /// Indicates if the layer list is empty.
+        /// Indicates if the layer list is empty. Default layers like location and track layer are
+        /// disregarded.
         /// </summary>
-        public bool IsListEmpty
-        {
-            get => this.LayerList == null || !this.LayerList.Any();
-        }
+        public bool IsListEmpty => this.LayerList == null || !this.LayerList.Any();
+
+        /// <summary>
+        /// Stores the selected layer when an item is tapped
+        /// </summary>
+        public LayerListEntryViewModel SelectedLayer { get; set; }
+
+        /// <summary>
+        /// Command to execute when an item in the layer list has been tapped
+        /// </summary>
+        public AsyncCommand<Layer> ItemTappedCommand { get; private set; }
 
         /// <summary>
         /// Indicates if the "clear layer list" button is enabled.
@@ -44,12 +64,12 @@ namespace WhereToFly.App.Core.ViewModels
         /// <summary>
         /// Command to execute when toolbar button "import layer" has been tapped
         /// </summary>
-        public Command ImportLayerCommand { get; set; }
+        public ICommand ImportLayerCommand { get; set; }
 
         /// <summary>
         /// Command to execute when toolbar button "delete layer list" has been tapped
         /// </summary>
-        public Command DeleteLayerListCommand { get; private set; }
+        public AsyncCommand DeleteLayerListCommand { get; private set; }
         #endregion
 
         /// <summary>
@@ -67,16 +87,15 @@ namespace WhereToFly.App.Core.ViewModels
         {
             Task.Run(this.LoadDataAsync);
 
-            this.ImportLayerCommand =
-                new Command(async () => await this.ImportLayerAsync());
+            this.ItemTappedCommand =
+                new AsyncCommand<Layer>(this.NavigateToLayerDetails);
+
+            this.ImportLayerCommand = new AsyncCommand(this.ImportLayerAsync);
 
             this.DeleteLayerListCommand =
-                new Command(
-                    async () =>
-                    {
-                        await this.ClearLayersAsync();
-                    },
-                    () => this.IsClearLayerListEnabled);
+                new AsyncCommand(
+                    this.ClearLayersAsync,
+                    (obj) => this.IsClearLayerListEnabled);
         }
 
         /// <summary>
@@ -88,8 +107,10 @@ namespace WhereToFly.App.Core.ViewModels
             try
             {
                 IDataService dataService = DependencyService.Get<IDataService>();
+                var layerDataService = dataService.GetLayerDataService();
 
-                this.layerList = await dataService.GetLayerListAsync(CancellationToken.None);
+                var localLayerList = await layerDataService.GetList();
+                this.layerList = localLayerList.ToList();
             }
             catch (Exception ex)
             {
@@ -114,7 +135,7 @@ namespace WhereToFly.App.Core.ViewModels
                 this.OnPropertyChanged(nameof(this.LayerList));
                 this.OnPropertyChanged(nameof(this.IsListEmpty));
                 this.OnPropertyChanged(nameof(this.IsClearLayerListEnabled));
-                App.RunOnUiThread(this.DeleteLayerListCommand.ChangeCanExecute);
+                App.RunOnUiThread(this.DeleteLayerListCommand.RaiseCanExecuteChanged);
             });
         }
 
@@ -125,9 +146,30 @@ namespace WhereToFly.App.Core.ViewModels
         /// <returns>task to wait on</returns>
         internal async Task ZoomToLayer(Layer layer)
         {
-            App.ZoomToLayer(layer);
+            App.MapView.ZoomToLayer(layer);
 
-            await NavigationService.Instance.NavigateAsync(Constants.PageKeyMapPage, animated: true);
+            await NavigationService.GoToMap();
+        }
+
+        /// <summary>
+        /// Navigates to layer details page
+        /// </summary>
+        /// <param name="layer">layer to show</param>
+        /// <returns>task to wait on</returns>
+        private async Task NavigateToLayerDetails(Layer layer)
+        {
+            this.SelectedLayer = null;
+            this.OnPropertyChanged(nameof(this.SelectedLayer));
+
+            if (layer.LayerType != LayerType.LocationLayer &&
+                layer.LayerType != LayerType.TrackLayer)
+            {
+                await NavigationService.Instance.NavigateAsync(PageKey.LayerDetailsPage, true, layer);
+            }
+            else
+            {
+                App.ShowToast("No details for this layer available.");
+            }
         }
 
         /// <summary>
@@ -136,22 +178,78 @@ namespace WhereToFly.App.Core.ViewModels
         /// <returns>task to wait on</returns>
         private async Task ImportLayerAsync()
         {
-            FileData result;
+            var importActions = new List<string>
+            {
+                "Import CZML Layer",
+                "Import OpenAir airspaces",
+                "Add OpenStreetMap Buildings Layer",
+                "Download from web",
+            };
+
+            string result = await App.Current.MainPage.DisplayActionSheet(
+                $"Import layer",
+                "Cancel",
+                null,
+                importActions.ToArray());
+
+            if (!string.IsNullOrEmpty(result))
+            {
+                int selectedIndex = importActions.IndexOf(result);
+
+                switch (selectedIndex)
+                {
+                    case 0:
+                        await this.ImportCzmlLayerAsync();
+                        break;
+
+                    case 1:
+                        await this.ImportOpenAirAirspacesAsync();
+                        break;
+
+                    case 2:
+                        await this.AddOpenStreetMapLayerAsync();
+                        break;
+
+                    case 3:
+                        await this.DownloadFromWebAsync();
+                        break;
+
+                    default:
+                        // ignore
+                        break;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Imports a CZML layer by showing file picker and opening the layer file
+        /// </summary>
+        /// <returns>task to wait on</returns>
+        private async Task ImportCzmlLayerAsync()
+        {
             try
             {
-                string[] fileTypes = null;
-
-                if (Device.RuntimePlatform == Device.UWP)
+                var options = new PickOptions
                 {
-                    fileTypes = new string[] { ".czml" };
-                }
+                    FileTypes = new FilePickerFileType(
+                        new Dictionary<DevicePlatform, IEnumerable<string>>
+                        {
+                            { DevicePlatform.Android, null },
+                            { DevicePlatform.UWP, new string[] { ".czml" } },
+                            { DevicePlatform.iOS, null },
+                        }),
+                    PickerTitle = "Select a CZML layer file to import",
+                };
 
-                result = await CrossFilePicker.Current.PickFile(fileTypes);
+                var result = await FilePicker.PickAsync(options);
                 if (result == null ||
-                    string.IsNullOrEmpty(result.FilePath))
+                    string.IsNullOrEmpty(result.FullPath))
                 {
                     return;
                 }
+
+                using var stream = await result.OpenReadAsync();
+                await OpenFileHelper.OpenLayerFileAsync(stream, result.FileName);
             }
             catch (Exception ex)
             {
@@ -165,12 +263,97 @@ namespace WhereToFly.App.Core.ViewModels
                 return;
             }
 
-            using (var stream = result.GetStream())
+            await this.ReloadLayerListAsync();
+        }
+
+        /// <summary>
+        /// Imports OpenAir airspaces file and adds layer
+        /// </summary>
+        /// <returns>task to wait on</returns>
+        private async Task ImportOpenAirAirspacesAsync()
+        {
+            try
             {
-                await OpenFileHelper.OpenLayerFileAsync(stream, result.FileName);
+                var options = new PickOptions
+                {
+                    FileTypes = new FilePickerFileType(
+                        new Dictionary<DevicePlatform, IEnumerable<string>>
+                        {
+                            { DevicePlatform.Android, new string[] { "text/plain" } },
+                            { DevicePlatform.UWP, new string[] { ".txt" } },
+                            { DevicePlatform.iOS, null },
+                        }),
+                    PickerTitle = "Select an OpenAir text file to import",
+                };
+
+                var result = await FilePicker.PickAsync(options);
+                if (result == null ||
+                    string.IsNullOrEmpty(result.FullPath))
+                {
+                    return;
+                }
+
+                using var stream = await result.OpenReadAsync();
+                await OpenFileHelper.ImportOpenAirAirspaceFile(stream, result.FileName);
+            }
+            catch (Exception ex)
+            {
+                App.LogError(ex);
+
+                await App.Current.MainPage.DisplayAlert(
+                    Constants.AppTitle,
+                    "Error while picking a file: " + ex.Message,
+                    "OK");
+
+                return;
             }
 
             await this.ReloadLayerListAsync();
+        }
+
+        /// <summary>
+        /// Adds (or re-adds at the end) the Cesium OpenStreetMap Buildings layer
+        /// </summary>
+        /// <returns>task to wait on</returns>
+        private async Task AddOpenStreetMapLayerAsync()
+        {
+            var dataService = DependencyService.Get<IDataService>();
+            var layerDataService = dataService.GetLayerDataService();
+
+            var layer = DataServiceHelper.GetOpenStreetMapBuildingsLayer();
+
+            await layerDataService.Remove(layer.Id);
+            await layerDataService.Add(layer);
+
+            await NavigationService.GoToMap();
+
+            App.MapView.AddLayer(layer);
+
+            App.ShowToast("Layer was added.");
+        }
+
+        /// <summary>
+        /// Presents a list of websites to download from and opens selected URL. Importing is then
+        /// done using the file extension association.
+        /// </summary>
+        /// <returns>task to wait on</returns>
+        private async Task DownloadFromWebAsync()
+        {
+            string result = await App.Current.MainPage.DisplayActionSheet(
+                "Select a web page to open",
+                "Cancel",
+                null,
+                this.downloadWebSiteList.Keys.ToArray());
+
+            if (result == null ||
+                !this.downloadWebSiteList.ContainsKey(result))
+            {
+                return;
+            }
+
+            string webSiteToOpen = this.downloadWebSiteList[result];
+
+            await Browser.OpenAsync(webSiteToOpen, BrowserLaunchMode.External);
         }
 
         /// <summary>
@@ -191,13 +374,28 @@ namespace WhereToFly.App.Core.ViewModels
             }
 
             var dataService = DependencyService.Get<IDataService>();
-            await dataService.StoreLayerListAsync(new List<Layer>());
+            var layerDataService = dataService.GetLayerDataService();
+
+            await layerDataService.ClearList();
+
+            var defaultLayerList = DataServiceHelper.GetDefaultLayerList();
+            await layerDataService.AddList(defaultLayerList);
 
             await this.ReloadLayerListAsync();
 
-            App.ClearLayerList();
+            App.MapView.ClearLayerList();
 
             App.ShowToast("Layer list was cleared.");
+        }
+
+        /// <summary>
+        /// Called when "Export" menu item is selected
+        /// </summary>
+        /// <param name="layer">layer to export</param>
+        /// <returns>task to wait on</returns>
+        internal async Task ExportLayer(Layer layer)
+        {
+            await ExportFileHelper.ExportLayerAsync(layer);
         }
 
         /// <summary>
@@ -210,11 +408,13 @@ namespace WhereToFly.App.Core.ViewModels
             this.layerList.Remove(layer);
 
             var dataService = DependencyService.Get<IDataService>();
-            await dataService.StoreLayerListAsync(this.layerList);
+            var layerDataService = dataService.GetLayerDataService();
+
+            await layerDataService.Remove(layer.Id);
 
             this.UpdateLayerList();
 
-            App.RemoveLayer(layer);
+            App.MapView.RemoveLayer(layer);
 
             App.ShowToast("Selected layer was deleted.");
         }

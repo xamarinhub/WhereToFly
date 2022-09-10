@@ -1,10 +1,12 @@
-﻿using Plugin.Geolocator.Abstractions;
-using System;
+﻿using System;
 using System.Threading.Tasks;
 using System.Timers;
-using WhereToFly.App.Logic;
-using WhereToFly.App.Model;
-using WhereToFly.Shared.Model;
+using WhereToFly.App.Core.Logic;
+using WhereToFly.App.Core.Models;
+using WhereToFly.Geo;
+using WhereToFly.Geo.Model;
+using WhereToFly.Geo.SunCalcNet;
+using Xamarin.Essentials;
 using Xamarin.Forms;
 
 namespace WhereToFly.App.Core.ViewModels
@@ -22,12 +24,42 @@ namespace WhereToFly.App.Core.ViewModels
         /// <summary>
         /// Timer to update LastPositionFix property
         /// </summary>
-        private readonly Timer timerUpdateLastPositionFix = new Timer();
+        private readonly Timer timerUpdateLastPositionFix = new();
 
         /// <summary>
         /// Current position
         /// </summary>
-        private Position position;
+        private Xamarin.Essentials.Location position;
+
+        /// <summary>
+        /// Indicates if the device has a compass that is available
+        /// </summary>
+        private bool isCompassAvailable;
+
+        /// <summary>
+        /// Current magnetic-north compass heading; only set if isCompassAvailable is true
+        /// </summary>
+        private int currentCompassHeading;
+
+        /// <summary>
+        /// Current true-north heading
+        /// </summary>
+        private int? currentTrueNorthHeading;
+
+        /// <summary>
+        /// Current solar times data
+        /// </summary>
+        private SolarTimes currentSolarTimes;
+
+        /// <summary>
+        /// Sunrise direction, in deegrees; may be null
+        /// </summary>
+        private int? sunriseDirectionInDegrees;
+
+        /// <summary>
+        /// Sunset direction, in deegrees; may be null
+        /// </summary>
+        private int? sunsetDirectionInDegrees;
 
         #region Binding properties
         /// <summary>
@@ -37,8 +69,9 @@ namespace WhereToFly.App.Core.ViewModels
         {
             get
             {
-                return this.position == null ? string.Empty :
-                    DataFormatter.FormatLatLong(this.position.Longitude, this.appSettings.CoordinateDisplayFormat);
+                return this.position == null
+                    ? string.Empty
+                    : GeoDataFormatter.FormatLatLong(this.position.Longitude, this.appSettings.CoordinateDisplayFormat);
             }
         }
 
@@ -49,8 +82,9 @@ namespace WhereToFly.App.Core.ViewModels
         {
             get
             {
-                return this.position == null ? string.Empty :
-                    DataFormatter.FormatLatLong(this.position.Latitude, this.appSettings.CoordinateDisplayFormat);
+                return this.position == null
+                    ? string.Empty
+                    : GeoDataFormatter.FormatLatLong(this.position.Latitude, this.appSettings.CoordinateDisplayFormat);
             }
         }
 
@@ -61,7 +95,9 @@ namespace WhereToFly.App.Core.ViewModels
         {
             get
             {
-                return this.position == null ? string.Empty : ((int)this.position.Altitude).ToString();
+                return this.position == null || this.position.Altitude == null
+                    ? string.Empty
+                    : ((int)this.position.Altitude.Value).ToString();
             }
         }
 
@@ -72,7 +108,9 @@ namespace WhereToFly.App.Core.ViewModels
         {
             get
             {
-                return this.position == null ? string.Empty : ((int)this.position.Accuracy).ToString();
+                return this.position == null || this.position.Accuracy == null
+                    ? string.Empty
+                    : ((int)this.position.Accuracy.Value).ToString();
             }
         }
 
@@ -83,7 +121,9 @@ namespace WhereToFly.App.Core.ViewModels
         {
             get
             {
-                return this.position == null ? Color.Black : Color.FromHex(ColorFromPositionAccuracy((int)this.position.Accuracy));
+                return this.position == null || this.position.Accuracy == null
+                    ? Color.Black
+                    : Color.FromHex(ColorFromPositionAccuracy((int)this.position.Accuracy.Value));
             }
         }
 
@@ -123,32 +163,124 @@ namespace WhereToFly.App.Core.ViewModels
             get
             {
                 // the Geolocator plugin reports speed in m/s
-                return this.position == null ? 0 :
-                    (int)(this.position.Speed * Geo.Spatial.Constants.FactorMeterPerSecondToKilometerPerHour);
+                return this.position == null
+                    ? 0
+                    : (int)((this.position.Speed ?? 0.0) * Geo.Constants.FactorMeterPerSecondToKilometerPerHour);
             }
         }
 
         /// <summary>
-        /// Indicates if heading value is available
+        /// Indicates if magnetic-north heading value is available
         /// </summary>
-        public bool IsHeadingAvail
+        public bool IsMagneticNorthHeadingAvail =>
+            this.isCompassAvailable;
+
+        /// <summary>
+        /// Magnetic-north heading in degrees
+        /// </summary>
+        public int MagneticNorthHeadingInDegrees =>
+            this.isCompassAvailable ? this.currentCompassHeading : 0;
+
+        /// <summary>
+        /// Indicates if true-north heading value is available
+        /// </summary>
+        public bool IsTrueNorthHeadingAvail =>
+            this.currentTrueNorthHeading.HasValue || this.position?.Course != null;
+
+        /// <summary>
+        /// True-north heading in degrees
+        /// </summary>
+        public int TrueNorthHeadingInDegrees
         {
             get
             {
-                return this.position != null;
+                if (this.currentTrueNorthHeading.HasValue)
+                {
+                    return this.currentTrueNorthHeading.Value;
+                }
+
+                return this.position?.Course == null
+                    ? 0
+                    : (int)this.position.Course.Value;
             }
         }
 
         /// <summary>
-        /// Heading in degrees
+        /// Indicates if sunrise and sunset times are available
         /// </summary>
-        public int HeadingInDegrees
+        public bool IsSunriseSunsetAvail
         {
             get
             {
-                return this.position == null ? 0 : (int)this.position.Heading;
+                return this.position != null &&
+                    this.position.Accuracy.HasValue &&
+                    this.position.Accuracy < 100.0;
             }
         }
+
+        /// <summary>
+        /// Sunrise time text
+        /// </summary>
+        public string SunriseTime
+        {
+            get
+            {
+                if (this.currentSolarTimes == null)
+                {
+                    return "N/A";
+                }
+
+                return this.currentSolarTimes.Sunrise.HasValue
+                  ? DataFormatter.FormatDuration(this.currentSolarTimes.Sunrise.Value.ToLocalTime().TimeOfDay)
+                  : "No sunrise today";
+            }
+        }
+
+        /// <summary>
+        /// Sunrise time text
+        /// </summary>
+        public string SunsetTime
+        {
+            get
+            {
+                if (this.currentSolarTimes == null)
+                {
+                    return "N/A";
+                }
+
+                return this.currentSolarTimes.Sunset.HasValue
+                  ? DataFormatter.FormatDuration(this.currentSolarTimes.Sunset.Value.ToLocalTime().TimeOfDay)
+                  : "No sunset today";
+            }
+        }
+
+        /// <summary>
+        /// Indicates if the sunrise direction is available
+        /// </summary>
+        public bool IsSunriseDirectionAvail => this.sunriseDirectionInDegrees.HasValue;
+
+        /// <summary>
+        /// Sunrise direction text
+        /// </summary>
+        public string SunriseDirectionText =>
+            this.sunriseDirectionInDegrees.HasValue
+            ? $"{this.sunriseDirectionInDegrees.Value}° " +
+                GetTextDirectionFromAngle(this.sunriseDirectionInDegrees.Value)
+            : "N/A";
+
+        /// <summary>
+        /// Indicates if the sunset direction is available
+        /// </summary>
+        public bool IsSunsetDirectionAvail => this.sunsetDirectionInDegrees.HasValue;
+
+        /// <summary>
+        /// Sunset direction text
+        /// </summary>
+        public string SunsetDirectionText =>
+            this.sunsetDirectionInDegrees.HasValue
+            ? $"{this.sunsetDirectionInDegrees.Value}° " +
+                GetTextDirectionFromAngle(this.sunsetDirectionInDegrees.Value)
+            : "N/A";
         #endregion
 
         /// <summary>
@@ -188,7 +320,7 @@ namespace WhereToFly.App.Core.ViewModels
         /// </summary>
         /// <param name="sender">sender object</param>
         /// <param name="args">event args, including position</param>
-        public void OnPositionChanged(object sender, PositionEventArgs args)
+        public void OnPositionChanged(object sender, GeolocationEventArgs args)
         {
             this.position = args.Position;
 
@@ -199,28 +331,60 @@ namespace WhereToFly.App.Core.ViewModels
             this.OnPropertyChanged(nameof(this.PositionAccuracyColor));
             this.OnPropertyChanged(nameof(this.LastPositionFix));
             this.OnPropertyChanged(nameof(this.SpeedInKmh));
-            this.OnPropertyChanged(nameof(this.IsHeadingAvail));
-            this.OnPropertyChanged(nameof(this.HeadingInDegrees));
 
-            Task.Run(async () => await this.UpdateLastShownPositionAsync(this.position));
+            this.currentSolarTimes = SunCalc.GetTimes(
+                this.position.Timestamp,
+                this.position.Latitude,
+                this.position.Longitude,
+                this.position.Altitude ?? 0.0);
+
+            this.OnPropertyChanged(nameof(this.IsSunriseSunsetAvail));
+            this.OnPropertyChanged(nameof(this.SunriseTime));
+            this.OnPropertyChanged(nameof(this.SunsetTime));
+
+            this.UpdateSunAngles();
+
+            var point = new MapPoint(this.position.Latitude, this.position.Longitude, this.position.Altitude);
+            Task.Run(async () => await App.UpdateLastShownPositionAsync(point));
         }
 
         /// <summary>
-        /// Updates last shown position in data service
+        /// Updates sunrise/sunset angles
         /// </summary>
-        /// <param name="position">current position</param>
-        /// <returns>task to wait on</returns>
-        private async Task UpdateLastShownPositionAsync(Position position)
+        private void UpdateSunAngles()
         {
-            var point = new MapPoint(position.Latitude, position.Longitude, position.Altitude);
-
-            if (point.Valid)
+            if (this.currentSolarTimes.Sunrise.HasValue)
             {
-                this.appSettings.LastShownPosition = point;
+                SunPosition sunrisePosition = SunCalc.GetPosition(
+                    this.currentSolarTimes.Sunrise.Value,
+                    this.position.Latitude,
+                    this.position.Longitude);
 
-                var dataService = DependencyService.Get<IDataService>();
-                await dataService.StoreAppSettingsAsync(this.appSettings);
+                this.sunriseDirectionInDegrees = (int)sunrisePosition.Azimuth.ToDegrees();
             }
+            else
+            {
+                this.sunriseDirectionInDegrees = null;
+            }
+
+            if (this.currentSolarTimes.Sunset.HasValue)
+            {
+                SunPosition sunsetPosition = SunCalc.GetPosition(
+                    this.currentSolarTimes.Sunset.Value,
+                    this.position.Latitude,
+                    this.position.Longitude);
+
+                this.sunsetDirectionInDegrees = (int)sunsetPosition.Azimuth.ToDegrees();
+            }
+            else
+            {
+                this.sunsetDirectionInDegrees = null;
+            }
+
+            this.OnPropertyChanged(nameof(this.IsSunriseDirectionAvail));
+            this.OnPropertyChanged(nameof(this.IsSunsetDirectionAvail));
+            this.OnPropertyChanged(nameof(this.SunriseDirectionText));
+            this.OnPropertyChanged(nameof(this.SunsetDirectionText));
         }
 
         /// <summary>
@@ -246,6 +410,120 @@ namespace WhereToFly.App.Core.ViewModels
             {
                 return "#c00000"; // red
             }
+        }
+
+        /// <summary>
+        /// Cardinal direction names
+        /// </summary>
+        private static readonly string[] DirectionNames = new string[16]
+        {
+            "N", "NNE", "NE", "ENE",
+            "E", "ESE", "SE", "SSE",
+            "S", "SSW", "SW", "WSW",
+            "W", "WNW", "NW", "NNW",
+        };
+
+        /// <summary>
+        /// Gets a textual direction name from a given angle
+        /// </summary>
+        /// <param name="angleInDegrees">direction angle, in degrees</param>
+        /// <returns>textual direction name</returns>
+        private static string GetTextDirectionFromAngle(int angleInDegrees)
+        {
+            int index = (int)((((angleInDegrees - 11.25) / 22.5) + 16.0) % 16.0);
+
+            return DirectionNames[index];
+        }
+
+        /// <summary>
+        /// Starts compass monitoring, if compass is available
+        /// </summary>
+        public void StartCompass()
+        {
+            this.isCompassAvailable = false;
+
+            try
+            {
+                if (Compass.IsMonitoring)
+                {
+                    return;
+                }
+
+                Compass.ReadingChanged += this.OnCompassReadingChanged;
+                Compass.Start(SensorSpeed.UI);
+            }
+            catch (FeatureNotSupportedException)
+            {
+                // Feature not supported on device
+            }
+            catch (Exception ex)
+            {
+                // Some other exception has occurred
+                App.LogError(ex);
+            }
+        }
+
+        /// <summary>
+        /// Stops compass monitoring
+        /// </summary>
+        public void StopCompass()
+        {
+            this.isCompassAvailable = false;
+
+            try
+            {
+                if (!Compass.IsMonitoring)
+                {
+                    return;
+                }
+
+                Compass.ReadingChanged -= this.OnCompassReadingChanged;
+                Compass.Stop();
+            }
+            catch (FeatureNotSupportedException)
+            {
+                // Feature not supported on device
+            }
+            catch (Exception ex)
+            {
+                // Some other exception has occurred
+                App.LogError(ex);
+            }
+        }
+
+        /// <summary>
+        /// Called when compass reading has changed
+        /// </summary>
+        /// <param name="sender">sender object</param>
+        /// <param name="args">event args</param>
+        private void OnCompassReadingChanged(object sender, CompassChangedEventArgs args)
+        {
+            this.currentCompassHeading = (int)(args.Reading.HeadingMagneticNorth + 0.5);
+            this.isCompassAvailable = true;
+
+            this.OnPropertyChanged(nameof(this.IsMagneticNorthHeadingAvail));
+            this.OnPropertyChanged(nameof(this.MagneticNorthHeadingInDegrees));
+
+            // try to translate magnetic north heading to true north
+            var platform = DependencyService.Get<IPlatform>();
+
+            int headingTrueNorth = 0;
+
+            bool translateSuccessful =
+                this.position != null &&
+                platform.TranslateCompassMagneticNorthToTrueNorth(
+                    this.currentCompassHeading,
+                    this.position.Latitude,
+                    this.position.Longitude,
+                    this.position.Altitude ?? 0.0,
+                    out headingTrueNorth);
+
+            this.currentTrueNorthHeading = translateSuccessful
+                ? headingTrueNorth
+                : null;
+
+            this.OnPropertyChanged(nameof(this.IsTrueNorthHeadingAvail));
+            this.OnPropertyChanged(nameof(this.TrueNorthHeadingInDegrees));
         }
     }
 }

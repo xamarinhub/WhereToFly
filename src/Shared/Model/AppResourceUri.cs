@@ -49,9 +49,20 @@ namespace WhereToFly.Shared.Model
             OpenGliderNetworkPos = 2,
 
             /// <summary>
+            /// Live track from Garmin inReach device; the data property contains the MapShare
+            /// identifier.
+            /// </summary>
+            GarminInreachLiveTrack = 3,
+
+            /// <summary>
             /// Specifies a position for testing
             /// </summary>
             TestPos = 100,
+
+            /// <summary>
+            /// Live tracking test track
+            /// </summary>
+            TestLiveTrack = 101,
         }
 
         /// <summary>
@@ -65,6 +76,18 @@ namespace WhereToFly.Shared.Model
                     this.uri.Scheme == DefaultScheme &&
                     this.Type != ResourceType.None &&
                     this.Data != null;
+            }
+        }
+
+        /// <summary>
+        /// Property that returns if the URI is a track resource uri
+        /// </summary>
+        public bool IsTrackResourceType
+        {
+            get
+            {
+                return this.Type == ResourceType.TestLiveTrack ||
+                    this.Type == ResourceType.GarminInreachLiveTrack;
             }
         }
 
@@ -184,7 +207,9 @@ namespace WhereToFly.Shared.Model
         /// </summary>
         /// <param name="other">other URI to compare to</param>
         /// <returns>true when equal URIs, false when not</returns>
-        public bool Equals(AppResourceUri other) => this.uri == other.uri;
+        public bool Equals(AppResourceUri other) =>
+            other != null &&
+            this.uri == other.uri;
 
         /// <summary>
         /// Equality operator
@@ -192,7 +217,7 @@ namespace WhereToFly.Shared.Model
         /// <param name="left">left operator argument</param>
         /// <param name="right">right operator argument</param>
         /// <returns>true when objects are equal, false when not</returns>
-        public static bool operator ==(AppResourceUri left, AppResourceUri right) => AppResourceUri.Equals(left, right);
+        public static bool operator ==(AppResourceUri left, AppResourceUri right) => Equals(left, right);
 
         /// <summary>
         /// Inequality operator
@@ -200,12 +225,12 @@ namespace WhereToFly.Shared.Model
         /// <param name="left">left operator argument</param>
         /// <param name="right">right operator argument</param>
         /// <returns>true when objects are inequal, false when not</returns>
-        public static bool operator !=(AppResourceUri left, AppResourceUri right) => !AppResourceUri.Equals(left, right);
+        public static bool operator !=(AppResourceUri left, AppResourceUri right) => !Equals(left, right);
 
         /// <summary>
         /// Nested JSON converter class for app resource URI
         /// </summary>
-        private class Converter : JsonConverter
+        private sealed class Converter : JsonConverter
         {
             /// <summary>
             /// Determines if given type can be converted to an app resource URI

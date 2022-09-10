@@ -1,11 +1,18 @@
 ﻿<?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://xamarin.com/schemas/2014/forms"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
-             xmlns:ffimageloadingsvg="clr-namespace:FFImageLoading.Svg.Forms;assembly=FFImageLoading.Svg.Forms"
+             xmlns:controls="clr-namespace:WhereToFly.App.Core.Controls"
+             xmlns:viewmodels="clr-namespace:WhereToFly.App.Core.ViewModels"
              x:Class="WhereToFly.App.Core.Views.MenuPage"
              Padding="0,40,0,0"
              Icon="icon.png"
-             Title="Where-to-fly">
+             Title="Where-to-fly"
+             BackgroundColor="{DynamicResource PageBackgroundColor}">
+
+    <ContentPage.BindingContext>
+        <viewmodels:MenuViewModel />
+    </ContentPage.BindingContext>
+
     <ContentPage.Content>
         <StackLayout>
             <!-- menu header -->
@@ -13,7 +20,8 @@
                          HorizontalOptions="Start"
                          Padding="16,0,0,16">
                 <!-- app icon -->
-                <Image Source="icon.png" WidthRequest="48" HeightRequest="48" VerticalOptions="Start" />
+                <controls:SvgImage Source="{Binding AppIcon, Mode=OneWay}"
+                                   WidthRequest="48" HeightRequest="48" VerticalOptions="Start" />
 
                 <!-- app name and version -->
                 <StackLayout>
@@ -23,36 +31,39 @@
             </StackLayout>
 
             <!-- list view with all menu items -->
-            <ListView x:Name="listView" ItemsSource="{Binding MenuItemList, Mode=OneTime}"
-                      BackgroundColor="LightGray"
-                      VerticalOptions="FillAndExpand"
-                      HorizontalOptions="StartAndExpand"
-                      SeparatorVisibility="None">
-                <ListView.ItemTemplate>
+            <CollectionView ItemsSource="{Binding MenuItemList, Mode=OneTime}"
+                            SelectedItem="{Binding SelectedMenuItem}"
+                            SelectionChangedCommand="{Binding MenuItemSelectedCommand}"
+                            SelectionMode="Single"
+                            BackgroundColor="{DynamicResource MenuBackgroundColor}"
+                            VerticalOptions="FillAndExpand"
+                            HorizontalOptions="StartAndExpand">
+                <CollectionView.ItemTemplate>
                     <DataTemplate>
                         <!-- single view cell for menu items -->
-                        <ViewCell>
-                            <Grid Padding="5,10">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="40"/>
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
+                        <Grid Padding="5">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="40"/>
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
 
-                                <!-- menu item icon -->
-                                <ffimageloadingsvg:SvgCachedImage Source="{Binding ImageSource, Mode=OneTime}"
-                                       WidthRequest="32" HeightRequest="32"
-                                       HorizontalOptions="Center" VerticalOptions="Center" />
+                            <!-- menu item icon -->
+                            <controls:SvgImage Source="{Binding ImageSource, Mode=OneWay}"
+                                               TintColor="{DynamicResource SvgImageTintColorDark}"
+                                               InputTransparent="True"
+                                               WidthRequest="32" HeightRequest="32"
+                                               HorizontalOptions="Center" VerticalOptions="Center" />
 
-                                <!-- title text -->
-                                <Label Grid.Column="1" Text="{Binding Title, Mode=OneTime}"
-                                       TextColor="Black" FontSize="Medium"
-                                       VerticalOptions="FillAndExpand"
-                                       VerticalTextAlignment="Center" />
-                            </Grid>
-                        </ViewCell>
+                            <!-- title text -->
+                            <Label Grid.Column="1" Text="{Binding Title, Mode=OneTime}"
+                                   InputTransparent="True"
+                                   FontSize="Medium"
+                                   VerticalOptions="FillAndExpand"
+                                   VerticalTextAlignment="Center" />
+                        </Grid>
                     </DataTemplate>
-                </ListView.ItemTemplate>
-            </ListView>
+                </CollectionView.ItemTemplate>
+            </CollectionView>
         </StackLayout>
     </ContentPage.Content>
 </ContentPage>

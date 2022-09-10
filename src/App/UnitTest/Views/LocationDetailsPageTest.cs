@@ -1,7 +1,7 @@
 ﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
 using WhereToFly.App.Core;
+using WhereToFly.App.Core.Models;
 using WhereToFly.App.Core.Views;
-using WhereToFly.App.Model;
 using Xamarin.Forms;
 
 namespace WhereToFly.App.UnitTest.Views
@@ -19,6 +19,7 @@ namespace WhereToFly.App.UnitTest.Views
         public void SetUp()
         {
             Xamarin.Forms.Mocks.MockForms.Init();
+            FFImageLoading.ImageService.EnableMockImageService = true;
             DependencyService.Register<IPlatform, UnitTestPlatform>();
             DependencyService.Register<SvgImageCache>();
             Core.App.Settings = new AppSettings();

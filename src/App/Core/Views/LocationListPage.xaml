@@ -1,18 +1,20 @@
 ﻿<?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://xamarin.com/schemas/2014/forms"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
-             xmlns:android="clr-namespace:Xamarin.Forms.PlatformConfiguration.AndroidSpecific;assembly=Xamarin.Forms.Core"
-             xmlns:ffimageloadingsvg="clr-namespace:FFImageLoading.Svg.Forms;assembly=FFImageLoading.Svg.Forms"
-             xmlns:local="clr-namespace:WhereToFly.App.Core"
+             xmlns:controls="clr-namespace:WhereToFly.App.Core.Controls"
              xmlns:converter="clr-namespace:WhereToFly.App.Core.Converter"
-             x:Class="WhereToFly.App.Core.Views.LocationListPage">
+             xmlns:xct="http://xamarin.com/schemas/2020/toolkit"
+             x:Class="WhereToFly.App.Core.Views.LocationListPage"
+             BackgroundColor="{DynamicResource PageBackgroundColor}">
 
     <ContentPage.Resources>
         <ResourceDictionary>
-            <converter:ImagePathConverter x:Key="ImagePathConverter" />
-            <x:String x:Key="ShowDetailsImageBaseName">information_outline</x:String>
-            <x:String x:Key="ZoomToImageBaseName">magnify_plus_outline</x:String>
-            <x:String x:Key="DeleteImageBaseName">delete</x:String>
+            <converter:SvgImagePathConverter x:Key="SvgImagePathConverter" />
+            <x:String x:Key="ShowDetailsImagePath">info/images/information-outline.svg</x:String>
+            <x:String x:Key="ZoomToImagePath">info/images/magnify-plus-outline.svg</x:String>
+            <x:String x:Key="SetAsCompassTargetPath">weblib/images/compass-rose.svg</x:String>
+            <x:String x:Key="DeleteImagePath">info/images/delete.svg</x:String>
+            <x:String x:Key="AddTourPlanLocationImagePath">weblib/images/map-marker-plus.svg</x:String>
         </ResourceDictionary>
     </ContentPage.Resources>
 
@@ -24,102 +26,153 @@
             <Entry Text="{Binding Path=FilterText, Mode=TwoWay}"
                    Placeholder="Type here to filter"
                    HorizontalOptions="FillAndExpand"
-                   AutomationId="FilterText" />
+                   AutomationId="FilterText">
+                <Entry.Behaviors>
+                    <xct:UserStoppedTypingBehavior Command="{Binding FindTextEnteredCommand}"
+                                                   StoppedTypingTimeThreshold="1000"
+                                                   ShouldDismissKeyboardAutomatically="False" />
+                </Entry.Behaviors>
+            </Entry>
+
+            <!-- Takeoff directions view -->
+            <controls:TakeoffDirectionsView IsVisible="True"
+                                            WidthRequest="40" HeightRequest="40"
+                                            HorizontalOptions="End" VerticalOptions="Center"
+                                            Source="{Binding FilterTakeoffDirections, Mode=TwoWay}"
+                                            IsReadOnly="True"
+                                            TouchCommand="{Binding FilterTakeoffDirectionsCommand}"
+                                            BackgroundColor="Transparent"
+                                            CompassBorderColor="Black"
+                                            CompassBackgroundColor="DarkGray"
+                                            CompassColor="Green"
+                                            ShowLabels="False" />
         </StackLayout>
 
         <!-- activity indicator to show while refreshing list -->
-        <StackLayout Padding="4" BackgroundColor="LightBlue"
+        <StackLayout Padding="4" BackgroundColor="{DynamicResource LoadingBandBackgroundColor}"
                      HeightRequest="32"
                      HorizontalOptions="FillAndExpand"
                      Orientation="Horizontal"
                      IsVisible="{Binding IsListRefreshActive, Mode=OneWay}" >
             <ActivityIndicator IsRunning="True" WidthRequest="20" />
-            <Label Text="List is being refreshed" VerticalTextAlignment="Center" FontSize="Medium" />
+            <Label Text="List is being refreshed"
+                   VerticalTextAlignment="Center" FontSize="Medium"
+                   TextColor="{DynamicResource LoadingBandTextColor}" />
         </StackLayout>
 
         <!-- Message to show when list is empty -->
-        <StackLayout Padding="4" BackgroundColor="LightGreen"
+        <StackLayout Padding="4" BackgroundColor="{DynamicResource MessageBandBackgroundColor}"
                      HeightRequest="32"
                      HorizontalOptions="FillAndExpand"
                      Orientation="Horizontal"
                      IsVisible="{Binding IsListEmpty, Mode=OneWay}" >
-            <Label Text="There are no locations in the list." VerticalTextAlignment="Center" FontSize="Medium" />
+            <Label Text="There are no locations in the list."
+                   VerticalTextAlignment="Center" FontSize="Medium"
+                   TextColor="{DynamicResource MessageBandTextColor}" />
         </StackLayout>
 
         <!-- Message to show when all locations were filtered out -->
-        <StackLayout Padding="8" BackgroundColor="Yellow"
+        <StackLayout Padding="8" BackgroundColor="{DynamicResource WarningBandBackgroundColor}"
                      HorizontalOptions="FillAndExpand"
                      IsVisible="{Binding Path=AreAllLocationsFilteredOut, Mode=OneWay}">
             <Label Text="All locations filtered out" FontSize="Medium"
+                   TextColor="{DynamicResource WarningBandTextColor}"
                    AutomationId="AllFilteredOutLabel" />
         </StackLayout>
 
         <!-- Location list -->
-        <ListView x:Name="locationsListView"
-                  ItemsSource="{Binding Path=LocationList, Mode=OneWay}"
-                  RowHeight="{OnPlatform Android=85, UWP=105}"
-                  ItemTapped="OnItemTapped_LocationsListView"
-                  IsPullToRefreshEnabled="False"
-                  android:ListView.IsFastScrollEnabled="true"
-                  CachingStrategy="RecycleElement"
-                  SeparatorVisibility="None"
-                  AutomationId="LocationList">
+        <CollectionView x:Name="locationsListView"
+                        ItemsSource="{Binding Path=LocationList, Mode=OneWay}"
+                        SelectionMode="Single"
+                        SelectedItem="{Binding SelectedLocation}"
+                        ItemSizingStrategy="MeasureFirstItem"
+                        AutomationId="LocationList">
 
-            <ListView.ItemTemplate>
+            <CollectionView.ItemsLayout>
+                <LinearItemsLayout Orientation="Vertical" ItemSpacing="4" />
+            </CollectionView.ItemsLayout>
+
+            <CollectionView.ItemTemplate>
                 <DataTemplate>
-                    <!-- Template for a single view cell -->
-                    <ViewCell Height="85" BindingContextChanged="OnViewCellBindingContextChanged">
-                        <ViewCell.View>
-                            <Grid BackgroundColor="#efefef" Margin="8,4">
-                                <Grid.RowDefinitions>
-                                    <RowDefinition/>
-                                    <RowDefinition/>
-                                    <RowDefinition/>
-                                </Grid.RowDefinitions>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition/>
-                                </Grid.ColumnDefinitions>
+                    <!-- Template for a single item -->
+                    <Grid RowDefinitions="Auto,Auto,Auto"
+                          ColumnDefinitions="Auto,Auto,1*,40"
+                          BackgroundColor="{DynamicResource ListViewItemBackgroundColor}"
+                          HeightRequest="{OnPlatform Android=85, UWP=105}"
+                          Margin="8,4">
 
-                                <!-- Type image -->
-                                <ffimageloadingsvg:SvgCachedImage Source="{Binding TypeImageSource, Mode=OneWay}"
-                                                   WidthRequest="32" HeightRequest="32" Margin="4,0,0,0"
-                                                   HorizontalOptions="Start" VerticalOptions="Center"
-                                                   Grid.Column="0" Grid.RowSpan="3"/>
+                        <Grid.GestureRecognizers>
+                            <TapGestureRecognizer Command="{Binding ItemTappedCommand}"
+                                                  NumberOfTapsRequired="1" />
+                        </Grid.GestureRecognizers>
 
-                                <!-- Details -->
-                                <Label Text="{Binding Name}"
-                                       Style="{DynamicResource ListItemTextStyle}"
-                                       FontSize="Medium"
-                                       LineBreakMode="TailTruncation"
-                                       Grid.Column="1" Grid.Row="0" />
-                                <Label Text="{Binding DetailInfos}"
-                                       Style="{DynamicResource ListItemDetailTextStyle}"
-                                       FontSize="Small"
-                                       LineBreakMode="TailTruncation"
-                                       Grid.Column="1" Grid.Row="1" />
-                                <Label Text="{Binding Description}"
-                                       Style="{DynamicResource ListItemDetailTextStyle}"
-                                       FontSize="Small"
-                                       LineBreakMode="TailTruncation"
-                                       Grid.Column="1" Grid.Row="2" />
-                            </Grid>
-                        </ViewCell.View>
-                        <ViewCell.ContextActions>
-                            <MenuItem Text="Show Details"
-                                      Icon="{Binding Source={StaticResource ShowDetailsImageBaseName}, Converter={StaticResource ImagePathConverter}}"
-                                      Command="{Binding ShowDetailsLocationContextAction}" />
-                            <MenuItem Text="Zoom to"
-                                      Icon="{Binding Source={StaticResource ZoomToImageBaseName}, Converter={StaticResource ImagePathConverter}}"
-                                      Command="{Binding ZoomToLocationContextAction}" />
-                            <MenuItem Text="Delete" IsDestructive="True"
-                                      Icon="{Binding Source={StaticResource DeleteImageBaseName}, Converter={StaticResource ImagePathConverter}}"
-                                      Command="{Binding DeleteLocationContextAction}" />
-                        </ViewCell.ContextActions>
-                    </ViewCell>
+                        <!-- Type image -->
+                        <controls:SvgImage Source="{Binding TypeImageSource, Mode=OneWay}"
+                                           TintColor="{DynamicResource SvgImageTintColorDark}"
+                                           WidthRequest="32" HeightRequest="32" Margin="4,0,0,0"
+                                           HorizontalOptions="Start" VerticalOptions="Center"
+                                           Grid.Column="0" Grid.RowSpan="3" />
+
+                        <!-- Takeoff directions -->
+                        <controls:TakeoffDirectionsView Grid.Column="1" Grid.RowSpan="3"
+                                                        IsVisible="{Binding IsTakeoffDirectionsVisible, Mode=OneTime}"
+                                                        WidthRequest="40" HeightRequest="40"
+                                                        HorizontalOptions="Start" VerticalOptions="Center"
+                                                        Source="{Binding TakeoffDirections, Mode=OneTime}"
+                                                        IsReadOnly="True"
+                                                        BackgroundColor="Transparent"
+                                                        CompassBorderColor="Black"
+                                                        CompassBackgroundColor="DarkGray"
+                                                        CompassColor="Green"
+                                                        ShowLabels="False" />
+
+                        <!-- Details -->
+                        <Label Text="{Binding Name}"
+                               Style="{DynamicResource ListItemTextStyle}"
+                               FontSize="Medium"
+                               LineBreakMode="TailTruncation"
+                               Grid.Column="2" Grid.Row="0" />
+                        <Label Text="{Binding DetailInfos}"
+                               Style="{DynamicResource ListItemDetailTextStyle}"
+                               FontSize="Small"
+                               LineBreakMode="TailTruncation"
+                               Grid.Column="2" Grid.Row="1" />
+                        <Label Text="{Binding Description}"
+                               Style="{DynamicResource ListItemDetailTextStyle}"
+                               FontSize="Small"
+                               LineBreakMode="TailTruncation"
+                               Grid.Column="2" Grid.Row="2" Grid.ColumnSpan="2" />
+
+                        <!-- Context menu for an item -->
+                        <controls:ContextMenu Grid.Column="3" Grid.RowSpan="2"
+                                              Caption="Location"
+                                              WidthRequest="40" HeightRequest="40"
+                                              HorizontalOptions="Center"
+                                              VerticalOptions="Center">
+                            <controls:ContextMenu.Items>
+                                <MenuItem Text="Show Details"
+                                          Icon="{Binding Source={StaticResource ShowDetailsImagePath}, Converter={StaticResource SvgImagePathConverter}}"
+                                          Command="{Binding ShowDetailsLocationCommand}" />
+                                <MenuItem Text="Zoom to"
+                                          Icon="{Binding Source={StaticResource ZoomToImagePath}, Converter={StaticResource SvgImagePathConverter}}"
+                                          Command="{Binding ZoomToLocationCommand}" />
+                                <MenuItem Text="Set as compass target"
+                                          Icon="{Binding Source={StaticResource SetAsCompassTargetPath}, Converter={StaticResource SvgImagePathConverter}}"
+                                          Command="{Binding SetAsCompassTargetCommand}" />
+                                <MenuItem Text="Delete" IsDestructive="True"
+                                          Icon="{Binding Source={StaticResource DeleteImagePath}, Converter={StaticResource SvgImagePathConverter}}"
+                                          Command="{Binding DeleteLocationCommand}" />
+                                <MenuItem Text="Add tour plan location"
+                                          Icon="{Binding Source={StaticResource AddTourPlanLocationImagePath}, Converter={StaticResource SvgImagePathConverter}}"
+                                          Command="{Binding AddTourPlanLocationCommand}"
+                                          IsEnabled="{Binding IsEnabledAddTourPlanLocation, Mode=OneWay}"
+                                          AutomationId="AddTourPlanLocation" />
+                            </controls:ContextMenu.Items>
+                        </controls:ContextMenu>
+                    </Grid>
                 </DataTemplate>
-            </ListView.ItemTemplate>
-        </ListView>
+            </CollectionView.ItemTemplate>
+        </CollectionView>
 
     </StackLayout>
 </ContentPage>

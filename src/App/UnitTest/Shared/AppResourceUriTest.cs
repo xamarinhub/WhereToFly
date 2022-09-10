@@ -1,8 +1,8 @@
-﻿using System;
+﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Newtonsoft.Json;
+using System;
 using System.Collections.Generic;
 using System.Linq;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Newtonsoft.Json;
 using WhereToFly.Shared.Model;
 
 namespace WhereToFly.App.UnitTest.Shared
@@ -65,7 +65,7 @@ namespace WhereToFly.App.UnitTest.Shared
             Assert.ThrowsException<ArgumentNullException>(() => new AppResourceUri(AppResourceUri.ResourceType.FindMeSpotPos, null));
             Assert.ThrowsException<UriFormatException>(() => new AppResourceUri(string.Empty));
 
-            var uri1 = new AppResourceUri("http://github.com/");
+            var uri1 = new AppResourceUri("https://github.com/");
             var uri2 = new AppResourceUri("where-to-fly://");
             var uri3 = new AppResourceUri("where-to-fly://xxx");
             var uri4 = new AppResourceUri("where-to-fly://findmespotpos/");
@@ -99,7 +99,7 @@ namespace WhereToFly.App.UnitTest.Shared
             Assert.AreEqual<AppResourceUri>(uri1, uri1, "same objects must be equal");
             Assert.AreNotEqual<AppResourceUri>(uri1, uri2, "different objects must be equal");
             Assert.AreEqual<AppResourceUri>(uri2, uri3, "different references must be equal");
-            Assert.AreNotEqual<AppResourceUri>(uri1, null, "object must not be equal to null");
+            Assert.AreNotEqual<AppResourceUri>(null, uri1, "object must not be equal to null");
 
             Assert.AreEqual(uri2.GetHashCode(), uri3.GetHashCode(), "hash codes of same objects must be equal");
         }

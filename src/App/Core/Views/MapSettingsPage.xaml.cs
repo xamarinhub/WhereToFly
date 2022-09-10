@@ -1,13 +1,10 @@
-﻿using WhereToFly.App.Core.ViewModels;
-using Xamarin.Forms;
-using Xamarin.Forms.Xaml;
+﻿using Xamarin.Forms;
 
 namespace WhereToFly.App.Core.Views
 {
     /// <summary>
     /// Settings page to configure app map settings
     /// </summary>
-    [XamlCompilation(XamlCompilationOptions.Compile)]
     public partial class MapSettingsPage : ContentPage
     {
         /// <summary>
@@ -15,8 +12,10 @@ namespace WhereToFly.App.Core.Views
         /// </summary>
         public MapSettingsPage()
         {
-            this.Title = "Map";
-            this.BindingContext = new MapSettingsViewModel();
+            this.IconImageSource = new FileImageSource
+            {
+                File = Converter.ImagePathConverter.GetDeviceDependentImage("map"),
+            };
 
             this.InitializeComponent();
         }

@@ -1,14 +1,12 @@
 ﻿using System.Threading.Tasks;
 using WhereToFly.App.Core.ViewModels;
 using Xamarin.Forms;
-using Xamarin.Forms.Xaml;
 
 namespace WhereToFly.App.Core.Views
 {
     /// <summary>
     /// Page to display track list; a single location entry can be tapped to get more infos.
     /// </summary>
-    [XamlCompilation(XamlCompilationOptions.Compile)]
     public partial class TrackListPage : ContentPage
     {
         /// <summary>
@@ -21,22 +19,9 @@ namespace WhereToFly.App.Core.Views
         /// </summary>
         public TrackListPage()
         {
-            this.Title = "Track list";
-
             this.InitializeComponent();
 
             this.BindingContext = this.viewModel = new TrackListViewModel();
-        }
-
-        /// <summary>
-        /// Called when an item was tapped on the track list
-        /// </summary>
-        /// <param name="sender">sender object</param>
-        /// <param name="args">event args</param>
-        private void OnItemTapped_TrackListView(object sender, ItemTappedEventArgs args)
-        {
-            var trackListEntryViewModel = args.Item as TrackListEntryViewModel;
-            this.viewModel.ItemTappedCommand.Execute(trackListEntryViewModel.Track);
         }
 
         #region Page lifecycle methods

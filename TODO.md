@@ -3,17 +3,33 @@
 ## Bugs
 
 - [ ] Share without location, show toast after x seconds
-
-## Nice to have
-
-- [ ] Implement switching themes/night mode using ResourceDictionary
-- [ ] Zoom to newly imported locations
+- [ ] Web: Fix map and static navbar issue
 
 ## New Features
 
 ### Map
+- [ ] Implement wind field overlay from GFS weather model
+- [ ] Flight range: Add wind direction and speed to flight calculation
 
-- [ ] Show polyline with path from last 1h
-- [ ] Follow location when "my location" icon is tapped, until user interacts with view
-- [ ] Wind field overlay from GFS weather model
+### Layers
+- [ ] Add live updating layers using CZML updates
 
+### Locations
+- [ ] Export visible/filtered locations to GPX file
+
+### Tracks
+- [ ] Analyze flight tracks and show analysis on a new tab
+
+### Weather
+- [ ] Add filter when adding links
+
+### Live waypoints
+- [ ] Implement live waypoint type for OpenGliderNetwork position
+
+### Speech recognition
+- [ ] Implement controlling the app using speech recognition
+- [ ] Implement settings page to configure speech recognition
+
+### Miscellaneous
+- [ ] Add transferring locations using QR code scanning
+- [ ] UWP: Implement dropping files to open them

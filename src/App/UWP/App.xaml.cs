@@ -1,5 +1,6 @@
 ﻿using System;
 using System.IO;
+using System.Net.Http;
 using WhereToFly.App.Core;
 using Windows.ApplicationModel;
 using Windows.ApplicationModel.Activation;
@@ -33,6 +34,16 @@ namespace WhereToFly.App.UWP
         /// <param name="args">Details about the launch request and process.</param>
         protected override void OnLaunched(LaunchActivatedEventArgs args)
         {
+            this.SetupRootFrame(args, args.Arguments);
+        }
+
+        /// <summary>
+        /// Sets up root frame, if not already existing
+        /// </summary>
+        /// <param name="args">event args for activation event</param>
+        /// <param name="parameters">page parameters</param>
+        private void SetupRootFrame(IActivatedEventArgs args, object parameters)
+        {
             // Do not repeat app initialization when the Window already has content,
             // just ensure that the window is active
             if (!(Window.Current.Content is Frame rootFrame))
@@ -42,18 +53,7 @@ namespace WhereToFly.App.UWP
 
                 rootFrame.NavigationFailed += this.OnNavigationFailed;
 
-                Rg.Plugins.Popup.Popup.Init();
-
-                Xamarin.Forms.Forms.SetFlags("FastRenderers_Experimental");
-
-                Xamarin.Forms.Forms.Init(args, Rg.Plugins.Popup.Popup.GetExtraAssemblies());
-
-                FFImageLoading.ImageService.Instance.Initialize();
-                FFImageLoading.Forms.Platform.CachedImageRenderer.Init();
-
-                Xamarin.Essentials.Platform.MapServiceToken = Constants.BingMapsKeyUwp;
-
-                Xamarin.Forms.MessagingCenter.Subscribe<Core.App, string>(this, Constants.MessageShowToast, this.ShowToast);
+                this.SetupApp(args);
 
                 //// Note: When needed, use this check and restore state
                 //// if (args.PreviousExecutionState == ApplicationExecutionState.Terminated)
@@ -67,11 +67,34 @@ namespace WhereToFly.App.UWP
                 // When the navigation stack isn't restored navigate to the first page,
                 // configuring the new page by passing required information as a navigation
                 // parameter
-                rootFrame.Navigate(typeof(MainPage), args.Arguments);
+                rootFrame.Navigate(typeof(MainPage), parameters);
             }
 
             // Ensure the current window is active
             Window.Current.Activate();
+        }
+
+        /// <summary>
+        /// Sets up Xamarin app and all plugins
+        /// </summary>
+        /// <param name="args">event args for activation event</param>
+        private void SetupApp(IActivatedEventArgs args)
+        {
+            Rg.Plugins.Popup.Popup.Init();
+
+            Xamarin.Forms.Forms.Init(args, Rg.Plugins.Popup.Popup.GetExtraAssemblies());
+
+            var imageLoadingConfig = new FFImageLoading.Config.Configuration
+            {
+                HttpClient = new HttpClient(new FFImageLoadingHttpClientHandler()),
+            };
+
+            FFImageLoading.ImageService.Instance.Initialize(imageLoadingConfig);
+            FFImageLoading.Forms.Platform.CachedImageRenderer.Init();
+
+            Xamarin.Essentials.Platform.MapServiceToken = Constants.BingMapsKeyUwp;
+
+            Xamarin.Forms.MessagingCenter.Subscribe<Core.App, string>(this, Constants.MessageShowToast, this.ShowToast);
         }
 
         /// <summary>
@@ -84,9 +107,7 @@ namespace WhereToFly.App.UWP
             {
                 var eventArgs = args as ProtocolActivatedEventArgs;
 
-                var app = Core.App.Current as Core.App;
-
-                Core.App.RunOnUiThread(async () => await app.OpenAppResourceUriAsync(eventArgs.Uri.AbsoluteUri));
+                Core.App.OpenAppResourceUri(eventArgs.Uri.AbsoluteUri);
             }
         }
 
@@ -96,18 +117,16 @@ namespace WhereToFly.App.UWP
         /// <param name="args">file activation event args</param>
         protected override void OnFileActivated(FileActivatedEventArgs args)
         {
+            this.SetupRootFrame(args, null);
+
             if (args.Files.Count > 0)
             {
                 var file = args.Files[0] as StorageFile;
 
-                var app = Core.App.Current as Core.App;
-
                 Core.App.RunOnUiThread(async () =>
                 {
-                    using (var stream = await file.OpenStreamForReadAsync())
-                    {
-                        await app.OpenFileAsync(stream, file.Name);
-                    }
+                    using var stream = await file.OpenStreamForReadAsync();
+                    await OpenFileHelper.OpenFileAsync(stream, file.Name);
                 });
             }
         }
@@ -140,7 +159,7 @@ namespace WhereToFly.App.UWP
         /// <summary>
         /// Shows toast message with given text
         /// </summary>
-        /// <param name="app">app object; unused</param>
+        /// <param name="app">sender app object</param>
         /// <param name="message">toast message</param>
         private void ShowToast(Core.App app, string message)
         {
@@ -151,8 +170,10 @@ namespace WhereToFly.App.UWP
             toastNodeList.Item(0).AppendChild(toastXml.CreateTextNode(Constants.AppTitle));
             toastNodeList.Item(1).AppendChild(toastXml.CreateTextNode(message));
 
-            var toast = new ToastNotification(toastXml);
-            toast.ExpirationTime = DateTime.Now.AddSeconds(4);
+            var toast = new ToastNotification(toastXml)
+            {
+                ExpirationTime = DateTime.Now.AddSeconds(4),
+            };
             toastNotifier.Show(toast);
         }
     }

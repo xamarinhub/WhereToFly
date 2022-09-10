@@ -1,17 +1,15 @@
-﻿using Plugin.Geolocator.Abstractions;
-using Plugin.Permissions;
-using Plugin.Permissions.Abstractions;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using WhereToFly.App.Core.Logic;
+using WhereToFly.App.Core.Models;
 using WhereToFly.App.Core.Services;
-using WhereToFly.App.Geo;
-using WhereToFly.App.Geo.Spatial;
-using WhereToFly.App.Logic;
-using WhereToFly.App.Model;
+using WhereToFly.App.MapView;
+using WhereToFly.Geo;
+using WhereToFly.Geo.Model;
 using WhereToFly.Shared.Model;
 using Xamarin.Forms;
 
@@ -23,19 +21,14 @@ namespace WhereToFly.App.Core.Views
     public class MapPage : ContentPage
     {
         /// <summary>
-        /// Geo locator to use for position updates
+        /// Geolocation service to use for position updates
         /// </summary>
-        private readonly IGeolocator geolocator;
-
-        /// <summary>
-        /// List of track IDs currently being displayed
-        /// </summary>
-        private readonly HashSet<Track> displayedTracks = new HashSet<Track>();
+        private readonly IGeolocationService geolocationService;
 
         /// <summary>
         /// Tour planning parameters for the map page
         /// </summary>
-        private readonly PlanTourParameters planTourParameters = new PlanTourParameters();
+        private readonly PlanTourParameters planTourParameters = new();
 
         /// <summary>
         /// Indicates if the next position update should also zoom to my position
@@ -43,37 +36,9 @@ namespace WhereToFly.App.Core.Views
         private bool zoomToMyPosition;
 
         /// <summary>
-        /// Indicates if settings were updated while this page was invisible; used to update map
-        /// view when returning to this page.
-        /// </summary>
-        private bool updateMapSettings;
-
-        /// <summary>
-        /// Indicates if locations list was changed while this page was invisible, used to update
-        /// location list when returning to this page.
-        /// </summary>
-        private bool updateLocationsList;
-
-        /// <summary>
-        /// Indicates if track list was changed while this page was invisible; used to update
-        /// track list when returning to this page.
-        /// </summary>
-        private bool updateTrackList;
-
-        /// <summary>
-        /// Location to zoom to when this map page is appearing next time
-        /// </summary>
-        private MapPoint zoomToLocationOnAppearing;
-
-        /// <summary>
-        /// Track to zoom to when this map page is appearing next time
-        /// </summary>
-        private Track zoomToTrackOnAppearing;
-
-        /// <summary>
         /// Map view control on C# side
         /// </summary>
-        private MapView mapView;
+        private MapView.MapView mapView;
 
         /// <summary>
         /// Current app settings object
@@ -96,15 +61,9 @@ namespace WhereToFly.App.Core.Views
         private List<Layer> layerList;
 
         /// <summary>
-        /// Task completion source to signal that the web page has been loaded
+        /// Access to the map view instance
         /// </summary>
-        private TaskCompletionSource<bool> taskCompletionSourcePageLoaded;
-
-        /// <summary>
-        /// Indicates if this page is currently visible (OnAppearing() but no OnDisappearing()
-        /// called).
-        /// </summary>
-        private bool pageIsVisible;
+        internal IMapView MapView => this.mapView;
 
         /// <summary>
         /// Creates a new maps page
@@ -112,46 +71,25 @@ namespace WhereToFly.App.Core.Views
         public MapPage()
         {
             this.Title = Constants.AppTitle;
+            this.BackgroundColor = Color.Black;
 
-            this.pageIsVisible = false;
             this.zoomToMyPosition = false;
-            this.updateMapSettings = false;
-            this.updateLocationsList = false;
-            this.updateTrackList = false;
 
-            this.geolocator = DependencyService.Get<GeolocationService>().Geolocator;
+            this.geolocationService = DependencyService.Get<IGeolocationService>();
 
             Task.Run(this.InitLayoutAsync);
 
-            MessagingCenter.Subscribe<App, Layer>(this, Constants.MessageAddLayer, this.OnMessageAddLayer);
-            MessagingCenter.Subscribe<App, Layer>(this, Constants.MessageZoomToLayer, (app, layer) => this.OnMessageZoomToLayer(layer));
-            MessagingCenter.Subscribe<App, Layer>(this, Constants.MessageSetLayerVisibility, (app, layer) => this.OnMessageSetLayerVisibility(layer));
-            MessagingCenter.Subscribe<App, Layer>(this, Constants.MessageRemoveLayer, (app, layer) => this.OnMessageRemoveLayer(layer));
-            MessagingCenter.Subscribe<App>(this, Constants.MessageClearLayerList, (app) => this.OnMessageClearLayerList());
-
-            MessagingCenter.Subscribe<App, Track>(this, Constants.MessageAddTrack, this.OnMessageAddTrack);
+            MessagingCenter.Unsubscribe<App, Location>(
+                this,
+                Constants.MessageAddTourPlanLocation);
 
             MessagingCenter.Subscribe<App, Location>(
                 this,
                 Constants.MessageAddTourPlanLocation,
-                async (app, location) => await this.OnMessageAddTourPlanLocation(location));
+                async (app, location) => await this.AddTourPlanningLocationAsync(location));
 
-            MessagingCenter.Subscribe<App, MapPoint>(this, Constants.MessageZoomToLocation, async (app, location) => await this.OnMessageZoomToLocation(location));
-            MessagingCenter.Subscribe<App, Track>(this, Constants.MessageZoomToTrack, async (app, track) => await this.OnMessageZoomToTrack(track));
-            MessagingCenter.Subscribe<App>(this, Constants.MessageUpdateMapSettings, this.OnMessageUpdateMapSettings);
-            MessagingCenter.Subscribe<App>(this, Constants.MessageUpdateMapLocations, this.OnMessageUpdateMapLocations);
-            MessagingCenter.Subscribe<App>(this, Constants.MessageUpdateMapTracks, this.OnMessageUpdateMapTracks);
-        }
-
-        /// <summary>
-        /// Samples track heights for given track, updating track point altitudes in-place
-        /// </summary>
-        /// <param name="track">track to sample heights</param>
-        /// <param name="offsetInMeters">offset in meters to add to track</param>
-        /// <returns>task to wait on</returns>
-        public async Task SampleTrackHeightsAsync(Track track, double offsetInMeters)
-        {
-            await this.mapView.SampleTrackHeights(track, offsetInMeters);
+            MessagingCenter.Unsubscribe<App>(this, Constants.MessageUpdateMapSettings);
+            MessagingCenter.Subscribe<App>(this, Constants.MessageUpdateMapSettings, (app) => this.OnMessageUpdateMapSettings());
         }
 
         /// <summary>
@@ -162,19 +100,10 @@ namespace WhereToFly.App.Core.Views
         {
             App.RunOnUiThread(() => this.SetupToolbar());
 
-            await this.SetupWebViewAsync();
+            this.SetupWebView();
 
             await this.LoadDataAsync();
 
-            await this.CreateMapViewAsync();
-        }
-
-        /// <summary>
-        /// Reloads map by re-creating map view
-        /// </summary>
-        /// <returns>task to wait on</returns>
-        public async Task ReloadMapAsync()
-        {
             await this.CreateMapViewAsync();
         }
 
@@ -194,11 +123,11 @@ namespace WhereToFly.App.Core.Views
         {
             ToolbarItem locateMeButton = new ToolbarItem(
                 "Locate me",
-                Core.Converter.ImagePathConverter.GetDeviceDependentImage("crosshairs_gps"),
+                Converter.ImagePathConverter.GetDeviceDependentImage("crosshairs_gps"),
                 async () => await this.OnClicked_ToolbarButtonLocateMe(),
                 ToolbarItemOrder.Primary)
             {
-                AutomationId = "LocateMe"
+                AutomationId = "LocateMe",
             };
 
             this.ToolbarItems.Add(locateMeButton);
@@ -210,15 +139,10 @@ namespace WhereToFly.App.Core.Views
         /// <returns>task to wait on</returns>
         private async Task OnClicked_ToolbarButtonLocateMe()
         {
-            if (!await this.CheckPermissionAsync())
-            {
-                return;
-            }
-
-            Plugin.Geolocator.Abstractions.Position position = null;
+            Xamarin.Essentials.Location position;
             try
             {
-                position = await this.geolocator.GetPositionAsync(timeout: TimeSpan.FromMilliseconds(100), includeHeading: false);
+                position = await this.geolocationService.GetPositionAsync(timeout: TimeSpan.FromMilliseconds(100));
             }
             catch (Exception ex)
             {
@@ -238,12 +162,12 @@ namespace WhereToFly.App.Core.Views
             {
                 var point = new MapPoint(position.Latitude, position.Longitude, position.Altitude);
 
-                await this.UpdateLastShownPositionAsync(point);
+                await App.UpdateLastShownPositionAsync(point);
 
                 this.mapView.UpdateMyLocation(
                     point,
                     (int)position.Accuracy,
-                    position.Speed * Geo.Spatial.Constants.FactorMeterPerSecondToKilometerPerHour,
+                    (position.Speed ?? 0.0) * Geo.Constants.FactorMeterPerSecondToKilometerPerHour,
                     position.Timestamp,
                     zoomToLocation: true);
             }
@@ -251,41 +175,6 @@ namespace WhereToFly.App.Core.Views
             {
                 // zoom at next update
                 this.zoomToMyPosition = true;
-            }
-        }
-
-        /// <summary>
-        /// Checks for permission to use geolocator. See
-        /// https://github.com/jamesmontemagno/PermissionsPlugin
-        /// </summary>
-        /// <returns>true when everything is ok, false when permission wasn't given</returns>
-        private async Task<bool> CheckPermissionAsync()
-        {
-            try
-            {
-                var status = await CrossPermissions.Current.CheckPermissionStatusAsync(Permission.Location);
-
-                if (status != PermissionStatus.Granted)
-                {
-                    if (await CrossPermissions.Current.ShouldShowRequestPermissionRationaleAsync(Permission.Location))
-                    {
-                        await this.DisplayAlert(
-                            Constants.AppTitle,
-                            "The location permission is needed in order to locate your position on the map",
-                            "OK");
-                    }
-
-                    var results = await CrossPermissions.Current.RequestPermissionsAsync(new[] { Permission.Location });
-
-                    status = results[Permission.Location];
-                }
-
-                return status == PermissionStatus.Granted;
-            }
-            catch (Exception ex)
-            {
-                App.LogError(ex);
-                throw;
             }
         }
 
@@ -300,7 +189,7 @@ namespace WhereToFly.App.Core.Views
                 async () => await this.OnClicked_ToolbarButtonFindLocation(),
                 ToolbarItemOrder.Primary)
             {
-                AutomationId = "FindLocation"
+                AutomationId = "FindLocation",
             };
 
             this.ToolbarItems.Add(currentPositionDetailsButton);
@@ -354,49 +243,20 @@ namespace WhereToFly.App.Core.Views
         }
 
         /// <summary>
-        /// Sets up WebView control
+        /// Sets up WebView control. Loads the map html page into the web view, creates the C#
+        /// MapView instance.
         /// </summary>
-        /// <returns>task to wait on</returns>
-        private async Task SetupWebViewAsync()
+        private void SetupWebView()
         {
-            this.taskCompletionSourcePageLoaded = new TaskCompletionSource<bool>();
-
-            var platform = DependencyService.Get<IPlatform>();
-
-            WebViewSource webViewSource = null;
-            if (Device.RuntimePlatform == Device.Android)
+            this.mapView = new MapView.MapView
             {
-                string htmlText = platform.LoadAssetText("map/map3D.html");
-
-                webViewSource = new HtmlWebViewSource
-                {
-                    Html = htmlText,
-                    BaseUrl = platform.WebViewBasePath + "map/"
-                };
-            }
-
-            if (Device.RuntimePlatform == Device.UWP)
-            {
-                webViewSource = new UrlWebViewSource
-                {
-                    Url = platform.WebViewBasePath + "map/map3D.html"
-                };
-            }
-
-            var webView = new WebView
-            {
-                Source = webViewSource,
-
+                LogErrorAction = App.LogError,
                 VerticalOptions = LayoutOptions.FillAndExpand,
-                HorizontalOptions = LayoutOptions.FillAndExpand
+                HorizontalOptions = LayoutOptions.FillAndExpand,
+                AutomationId = "ExploreMapWebView",
             };
 
-            webView.AutomationId = "ExploreMapWebView";
-
-            webView.Navigating += this.OnNavigating_WebView;
-            webView.Navigated += this.OnNavigated_WebView;
-
-            this.mapView = new MapView(webView);
+            this.mapView.Navigating += this.OnNavigating_WebView;
 
             this.mapView.ShowLocationDetails += async (locationId) => await this.OnMapView_ShowLocationDetails(locationId);
             this.mapView.NavigateToLocation += async (locationId) => await this.OnMapView_NavigateToLocation(locationId);
@@ -404,10 +264,12 @@ namespace WhereToFly.App.Core.Views
             this.mapView.AddFindResult += async (name, point) => await this.OnMapView_AddFindResult(name, point);
             this.mapView.LongTap += async (point) => await this.OnMapView_LongTap(point);
             this.mapView.AddTourPlanLocation += async (locationId) => await this.OnMapView_AddTourPlanLocation(locationId);
+            this.mapView.UpdateLastShownLocation += async (point, viewingDistance)
+                => await this.OnMapView_UpdateLastShownLocation(point, viewingDistance);
+            this.mapView.SetLocationAsCompassTarget += async (locationId)
+                => await this.OnMapView_SetLocationAsCompassTarget(locationId);
 
-            this.Content = webView;
-
-            await this.taskCompletionSourcePageLoaded.Task;
+            this.Content = this.mapView;
         }
 
         /// <summary>
@@ -420,21 +282,11 @@ namespace WhereToFly.App.Core.Views
             if (args.NavigationEvent == WebNavigationEvent.NewPage &&
                 args.Url.StartsWith("http"))
             {
-                Device.OpenUri(new Uri(args.Url));
-                args.Cancel = true;
-            }
-        }
+                Xamarin.Essentials.Browser.OpenAsync(
+                    args.Url,
+                    Xamarin.Essentials.BrowserLaunchMode.External);
 
-        /// <summary>
-        /// Called when navigation to current page has finished
-        /// </summary>
-        /// <param name="sender">sender object</param>
-        /// <param name="args">event args</param>
-        private void OnNavigated_WebView(object sender, WebNavigatedEventArgs args)
-        {
-            if (!this.taskCompletionSourcePageLoaded.Task.IsCompleted)
-            {
-                this.taskCompletionSourcePageLoaded.SetResult(true);
+                args.Cancel = true;
             }
         }
 
@@ -447,13 +299,16 @@ namespace WhereToFly.App.Core.Views
             var dataService = DependencyService.Get<IDataService>();
 
             this.appSettings = await dataService.GetAppSettingsAsync(CancellationToken.None);
-            this.locationList = await dataService.GetLocationListAsync(CancellationToken.None);
-            this.trackList = await dataService.GetTrackListAsync(CancellationToken.None);
-            this.layerList = await dataService.GetLayerListAsync(CancellationToken.None);
+            this.locationList = (await dataService.GetLocationDataService().GetList()).ToList();
+            this.trackList = (await dataService.GetTrackDataService().GetList()).ToList();
+            this.layerList = (await dataService.GetLayerDataService().GetList()).ToList();
         }
 
         /// <summary>
-        /// Creates the map view
+        /// Creates the map view. Uses the C# MapView object to create its JavaScript MapView
+        /// counterpart. Also locations, tracks and layers are added. The call doesn't wait for
+        /// the map view to finish initialization. MapView would have a task to wait for that
+        /// event, though.
         /// </summary>
         /// <returns>task to wait on</returns>
         private async Task CreateMapViewAsync()
@@ -464,7 +319,16 @@ namespace WhereToFly.App.Core.Views
                 initialCenter = Constants.InitialCenterPoint;
             }
 
-            await this.mapView.CreateAsync(initialCenter, 14);
+            int lastViewingDistance = this.appSettings.LastViewingDistance;
+            if (lastViewingDistance == 0)
+            {
+                lastViewingDistance = 5000;
+            }
+
+            await this.mapView.CreateAsync(
+                initialCenter,
+                lastViewingDistance,
+                this.appSettings.UseMapEntityClustering);
 
             this.mapView.MapImageryType = this.appSettings.MapImageryType;
             this.mapView.MapOverlayType = this.appSettings.MapOverlayType;
@@ -473,39 +337,103 @@ namespace WhereToFly.App.Core.Views
 
             this.mapView.AddLocationList(this.locationList);
 
+            this.mapView.ShowMessageBand("Loading tracks...");
+
             foreach (var track in this.trackList)
             {
-                this.mapView.AddTrack(track);
-                this.displayedTracks.Add(track);
+                this.MapView.AddTrack(track);
             }
+
+            this.trackList.Clear();
+
+            this.mapView.ShowMessageBand("Loading layer...");
 
             foreach (var layer in this.layerList)
             {
                 this.mapView.AddLayer(layer);
             }
 
-            var liveWaypointRefreshService = DependencyService.Get<LiveWaypointRefreshService>();
-            liveWaypointRefreshService.UpdateLiveWaypoint += this.OnUpdateLiveWaypoint;
+            this.layerList.Clear();
+
+            this.mapView.HideMessageBand();
+
+            var liveWaypointRefreshService = DependencyService.Get<LiveDataRefreshService>();
+            liveWaypointRefreshService.UpdateLiveData += this.OnUpdateLiveData;
         }
 
         /// <summary>
-        /// Called when live waypoint location has been updated
+        /// Called when live waypoint or live track location has been updated
         /// </summary>
         /// <param name="sender">sender object</param>
         /// <param name="args">event args</param>
-        private void OnUpdateLiveWaypoint(object sender, LiveWaypointUpdateEventArgs args)
+        private void OnUpdateLiveData(object sender, LiveDataUpdateEventArgs args)
         {
-            var location = this.FindLocationById(args.Data.ID);
-            if (location != null)
+            LiveWaypointData waypointData = args.WaypointData;
+            if (waypointData != null)
             {
-                location.MapLocation = new MapPoint(args.Data.Latitude, args.Data.Longitude, args.Data.Altitude);
-                location.Description = args.Data.Description;
-                location.Name = args.Data.Name;
+                var location = this.FindLocationById(waypointData.ID);
+                if (location != null)
+                {
+                    location.MapLocation = new MapPoint(waypointData.Latitude, waypointData.Longitude, waypointData.Altitude);
+                    location.Description = waypointData.Description;
+                    location.Name = waypointData.Name;
 
-                this.mapView.UpdateLocation(location);
+                    this.mapView.UpdateLocation(location);
 
+                    var dataService = DependencyService.Get<IDataService>();
+                    var locationDataService = dataService.GetLocationDataService();
+
+                    Task.Run(async () => await locationDataService.Update(location));
+                }
+            }
+
+            if (args.TrackData != null)
+            {
                 var dataService = DependencyService.Get<IDataService>();
-                Task.Run(async () => await dataService.StoreLocationListAsync(this.locationList));
+                var trackDataService = dataService.GetTrackDataService();
+
+                Task.Run(async () =>
+                {
+                    var track = await trackDataService.Get(args.TrackData.ID);
+
+                    track.Name = args.TrackData.Name;
+                    track.Description = args.TrackData.Description;
+                    this.MergeTrackPoints(track, args.TrackData);
+
+                    track.CalculateStatistics();
+
+                    await trackDataService.Update(track);
+                });
+
+                this.mapView.UpdateLiveTrack(args.TrackData);
+            }
+        }
+
+        /// <summary>
+        /// Merges track points from live track data with the given track
+        /// </summary>
+        /// <param name="track">track to merge new track points to</param>
+        /// <param name="trackData">newly received track data</param>
+        private void MergeTrackPoints(Track track, LiveTrackData trackData)
+        {
+            var trackPoints = trackData.TrackPoints.Select(
+                    trackPoint => new TrackPoint(
+                        latitude: trackPoint.Latitude,
+                        longitude: trackPoint.Longitude,
+                        altitude: trackPoint.Altitude,
+                        null)
+                    {
+                        Time = trackData.TrackStart.AddSeconds(trackPoint.Offset),
+                    }).ToList();
+
+            if (trackPoints.Any())
+            {
+                DateTimeOffset? trackDataStart = trackPoints.First().Time;
+                if (trackDataStart.HasValue)
+                {
+                    track.RemoveTrackPointsAfter(trackDataStart.Value);
+                    track.TrackPoints.AddRange(trackPoints);
+                }
             }
         }
 
@@ -526,7 +454,7 @@ namespace WhereToFly.App.Core.Views
             }
 
             await NavigationService.Instance.NavigateAsync(
-                Constants.PageKeyLocationDetailsPage,
+                PageKey.LocationDetailsPage,
                 animated: true,
                 parameter: location);
         }
@@ -593,13 +521,12 @@ namespace WhereToFly.App.Core.Views
         private async Task OnMapView_ShareMyLocation()
         {
             var position =
-                await this.geolocator.GetPositionAsync(timeout: TimeSpan.FromSeconds(0.1), includeHeading: false);
+                await this.geolocationService.GetPositionAsync(timeout: TimeSpan.FromSeconds(0.1));
 
             if (position != null)
             {
                 var point = new MapPoint(position.Latitude, position.Longitude, position.Altitude);
-
-                await this.UpdateLastShownPositionAsync(point);
+                await App.UpdateLastShownPositionAsync(point);
 
                 await App.ShareMessageAsync(
                     "Share my position with...",
@@ -629,14 +556,58 @@ namespace WhereToFly.App.Core.Views
             this.locationList.Add(location);
 
             var dataService = DependencyService.Get<IDataService>();
-            await dataService.StoreLocationListAsync(this.locationList);
+            var locationDataService = dataService.GetLocationDataService();
+
+            await locationDataService.Add(location);
 
             await NavigationService.Instance.NavigateAsync(
-                Constants.PageKeyEditLocationDetailsPage,
+                PageKey.EditLocationDetailsPage,
                 animated: true,
                 parameter: location);
 
-            this.updateLocationsList = true;
+            this.MapView.AddLocation(location);
+        }
+
+        /// <summary>
+        /// Called when the last shown location should be updated in the app settings.
+        /// </summary>
+        /// <param name="point">map point to store</param>
+        /// <param name="viewingDistance">current viewing distance</param>
+        /// <returns>task to wait on</returns>
+        private async Task OnMapView_UpdateLastShownLocation(MapPoint point, int viewingDistance)
+        {
+            await App.UpdateLastShownPositionAsync(point, viewingDistance);
+        }
+
+        /// <summary>
+        /// Called when a location has been set as the compass target.
+        /// </summary>
+        /// <param name="locationId">location ID of new target location; may be null</param>
+        /// <returns>task to wait on</returns>
+        private async Task OnMapView_SetLocationAsCompassTarget(string locationId)
+        {
+            if (string.IsNullOrEmpty(locationId) ||
+                locationId == "null")
+            {
+                await App.SetCompassTarget(null);
+                return;
+            }
+
+            Location location = this.FindLocationById(locationId);
+
+            if (location == null)
+            {
+                Debug.WriteLine("couldn't set location as compass target, with id=" + locationId);
+                return;
+            }
+
+            var compassTarget = new CompassTarget
+            {
+                Title = location.Name,
+                TargetLocation = location.MapLocation,
+            };
+
+            await App.SetCompassTarget(compassTarget);
         }
 
         /// <summary>
@@ -646,39 +617,33 @@ namespace WhereToFly.App.Core.Views
         /// <returns>task to wait on</returns>
         private async Task OnMapView_LongTap(MapPoint point)
         {
-            string latitudeText = DataFormatter.FormatLatLong(point.Latitude, this.appSettings.CoordinateDisplayFormat);
-            string longitudeText = DataFormatter.FormatLatLong(point.Longitude, this.appSettings.CoordinateDisplayFormat);
+            var result = await MapLongTapContextMenu.ShowAsync(point, this.appSettings);
 
-            var longTapActions = new List<string> { "Add new waypoint", "Navigate here", "Show flying range" };
-
-            string result = await App.Current.MainPage.DisplayActionSheet(
-                $"Selected point at Latitude: {latitudeText}, Longitude: {longitudeText}, Altitude {point.Altitude.GetValueOrDefault(0.0)} m",
-                "Cancel",
-                null,
-                longTapActions.ToArray());
-
-            if (!string.IsNullOrEmpty(result))
+            switch (result)
             {
-                int selectedIndex = longTapActions.IndexOf(result);
+                case MapLongTapContextMenu.Result.AddNewWaypoint:
+                    await this.AddNewWaypoint(point);
+                    break;
 
-                switch (selectedIndex)
-                {
-                    case 0:
-                        await this.AddNewWaypoint(point);
-                        break;
+                case MapLongTapContextMenu.Result.SetAsCompassTarget:
+                    await this.SetAsCompassTarget(point);
+                    break;
 
-                    case 1:
-                        await NavigateToPointAsync(string.Empty, point);
-                        break;
+                case MapLongTapContextMenu.Result.NavigateHere:
+                    await NavigateToPointAsync(string.Empty, point);
+                    break;
 
-                    case 2:
-                        await this.ShowFlyingRange(point);
-                        break;
+                case MapLongTapContextMenu.Result.ShowFlyingRange:
+                    await this.ShowFlyingRange(point);
+                    break;
 
-                    default:
-                        // ignore
-                        break;
-                }
+                case MapLongTapContextMenu.Result.Cancel:
+                    // ignore
+                    break;
+
+                default:
+                    Debug.Assert(false, "invalid context menu result");
+                    break;
             }
         }
 
@@ -702,14 +667,32 @@ namespace WhereToFly.App.Core.Views
             this.locationList.Add(location);
 
             var dataService = DependencyService.Get<IDataService>();
-            await dataService.StoreLocationListAsync(this.locationList);
+            var locationDataService = dataService.GetLocationDataService();
+
+            await locationDataService.Add(location);
 
             await NavigationService.Instance.NavigateAsync(
-                Constants.PageKeyEditLocationDetailsPage,
+                PageKey.EditLocationDetailsPage,
                 animated: true,
                 parameter: location);
 
-            this.updateLocationsList = true;
+            this.MapView.AddLocation(location);
+        }
+
+        /// <summary>
+        /// Sets map point as compass target
+        /// </summary>
+        /// <param name="point">map point to set as target</param>
+        /// <returns>task to wait on</returns>
+        private async Task SetAsCompassTarget(MapPoint point)
+        {
+            var compassTarget = new CompassTarget
+            {
+                Title = "Selected location",
+                TargetLocation = point,
+            };
+
+            await App.SetCompassTarget(compassTarget);
         }
 
         /// <summary>
@@ -754,172 +737,19 @@ namespace WhereToFly.App.Core.Views
         /// <returns>task to wait on</returns>
         private async Task AddTourPlanningLocationAsync(Location location)
         {
+            Debug.Assert(location != null, "passed location must be non-null");
+
             this.planTourParameters.WaypointIdList.Add(location.Id);
 
             await PlanTourPopupPage.ShowAsync(this.planTourParameters);
         }
 
         /// <summary>
-        /// Called when message arrives in order to add a new layer to map
-        /// </summary>
-        /// <param name="app">app object</param>
-        /// <param name="layer">layer to add</param>
-        private void OnMessageAddLayer(App app, Layer layer)
-        {
-            App.RunOnUiThread(() => this.mapView.AddLayer(layer));
-        }
-
-        /// <summary>
-        /// Called when message arrives in order to zoom to layer on map
-        /// </summary>
-        /// <param name="layer">layer to zoom to</param>
-        private void OnMessageZoomToLayer(Layer layer)
-        {
-            App.RunOnUiThread(() => this.mapView.ZoomToLayer(layer));
-        }
-
-        /// <summary>
-        /// Called when message arrives in order to set layer visibility
-        /// </summary>
-        /// <param name="layer">layer to set new visibility</param>
-        private void OnMessageSetLayerVisibility(Layer layer)
-        {
-            App.RunOnUiThread(() => this.mapView.SetLayerVisibility(layer));
-        }
-
-        /// <summary>
-        /// Called when message arrives in order to remove layer
-        /// </summary>
-        /// <param name="layer">layer to remove</param>
-        private void OnMessageRemoveLayer(Layer layer)
-        {
-            App.RunOnUiThread(() => this.mapView.RemoveLayer(layer));
-        }
-
-        /// <summary>
-        /// Called when message arrives in order to clear layer list
-        /// </summary>
-        private void OnMessageClearLayerList()
-        {
-            App.RunOnUiThread(() => this.mapView.ClearLayerList());
-        }
-
-        /// <summary>
-        /// Called when message arrives in order to add a new track to map
-        /// </summary>
-        /// <param name="app">app object</param>
-        /// <param name="track">track to add</param>
-        private void OnMessageAddTrack(App app, Track track)
-        {
-            if (this.pageIsVisible)
-            {
-                App.RunOnUiThread(() => this.mapView.AddTrack(track));
-            }
-            else
-            {
-                this.updateTrackList = true;
-            }
-        }
-
-        /// <summary>
-        /// Called when message arrives in order to add tour plan location
-        /// </summary>
-        /// <param name="location">location to add</param>
-        /// <returns>task to wait on</returns>
-        private async Task OnMessageAddTourPlanLocation(Location location)
-        {
-            await this.AddTourPlanningLocationAsync(location);
-        }
-
-        /// <summary>
-        /// Called when message arrives in order to zoom to a location
-        /// </summary>
-        /// <param name="location">location to zoom to</param>
-        /// <returns>task to wait on</returns>
-        private async Task OnMessageZoomToLocation(MapPoint location)
-        {
-            await this.UpdateLastShownPositionAsync(location);
-
-            if (this.pageIsVisible)
-            {
-                this.mapView.ZoomToLocation(location);
-            }
-            else
-            {
-                this.zoomToLocationOnAppearing = location;
-            }
-        }
-
-        /// <summary>
-        /// Called when message arrives in order to zoom to a track
-        /// </summary>
-        /// <param name="track">track to zoom to</param>
-        /// <returns>task to wait on</returns>
-        private async Task OnMessageZoomToTrack(Track track)
-        {
-            var point = track.CalculateCenterPoint();
-
-            if (point.Valid)
-            {
-                await this.UpdateLastShownPositionAsync(point);
-            }
-
-            if (this.pageIsVisible)
-            {
-                this.mapView.ZoomToTrack(track);
-            }
-            else
-            {
-                this.zoomToTrackOnAppearing = track;
-            }
-        }
-
-        /// <summary>
         /// Called when message arrives in order to update map settings
         /// </summary>
-        /// <param name="app">app object</param>
-        private void OnMessageUpdateMapSettings(App app)
+        private void OnMessageUpdateMapSettings()
         {
-            if (this.pageIsVisible)
-            {
-                App.RunOnUiThread(() => this.ReloadMapViewAppSettings());
-            }
-            else
-            {
-                this.updateMapSettings = true;
-            }
-        }
-
-        /// <summary>
-        /// Called when message arrives in order to update location list on map
-        /// </summary>
-        /// <param name="app">app object</param>
-        private void OnMessageUpdateMapLocations(App app)
-        {
-            if (this.pageIsVisible)
-            {
-                App.RunOnUiThread(async () => await this.ReloadLocationListAsync());
-            }
-            else
-            {
-                this.updateLocationsList = true;
-            }
-        }
-
-        /// <summary>
-        /// Called when message arrives in order to update track list on map
-        /// </summary>
-        /// <param name="app">app object</param>
-        private void OnMessageUpdateMapTracks(App app)
-        {
-            if (this.pageIsVisible)
-            {
-                App.RunOnUiThread(async () => await this.ReloadTrackListAsync());
-            }
-            else
-            {
-                this.updateTrackList = true;
-            }
+            this.ReloadMapViewAppSettings();
         }
 
         #region Page lifecycle methods
@@ -930,57 +760,23 @@ namespace WhereToFly.App.Core.Views
         {
             base.OnAppearing();
 
-            Task.Run(async () =>
-            {
-                await this.geolocator.StartListeningAsync(
-                    Constants.GeoLocationMinimumTimeForUpdate,
-                    Constants.GeoLocationMinimumDistanceForUpdateInMeters,
-                    includeHeading: false);
-            });
+            this.geolocationService.PositionChanged += this.OnPositionChanged;
 
-            this.geolocator.PositionChanged += this.OnPositionChanged;
-
-            App.RunOnUiThread(async () => await this.CheckReloadData());
-
-            this.pageIsVisible = true;
+            Xamarin.Essentials.Connectivity.ConnectivityChanged += this.OnConnectivityChanged;
         }
 
         /// <summary>
-        /// Checks if a reload of data into the map view is necessary
+        /// Called when network connectivity of the device has changed. Sends a notification to
+        /// the map view.
         /// </summary>
-        /// <returns>task to wait on</returns>
-        private async Task CheckReloadData()
+        /// <param name="sender">sender object</param>
+        /// <param name="args">event args</param>
+        private void OnConnectivityChanged(object sender, Xamarin.Essentials.ConnectivityChangedEventArgs args)
         {
-            if (this.updateMapSettings)
-            {
-                this.updateMapSettings = false;
+            bool isConnectivityAvailable =
+                args.NetworkAccess == Xamarin.Essentials.NetworkAccess.Internet;
 
-                this.ReloadMapViewAppSettings();
-            }
-
-            if (this.updateLocationsList)
-            {
-                await this.ReloadLocationListAsync();
-            }
-
-            if (this.updateTrackList)
-            {
-                await this.ReloadTrackListAsync();
-            }
-
-            if (this.zoomToLocationOnAppearing != null)
-            {
-                this.mapView.ZoomToLocation(this.zoomToLocationOnAppearing);
-
-                this.zoomToLocationOnAppearing = null;
-            }
-
-            if (this.zoomToTrackOnAppearing != null)
-            {
-                this.mapView.ZoomToTrack(this.zoomToTrackOnAppearing);
-
-                this.zoomToTrackOnAppearing = null;
-            }
+            this.mapView.OnNetworkConnectivityChanged(isConnectivityAvailable);
         }
 
         /// <summary>
@@ -994,84 +790,9 @@ namespace WhereToFly.App.Core.Views
             this.mapView.MapOverlayType = this.appSettings.MapOverlayType;
             this.mapView.MapShadingMode = this.appSettings.ShadingMode;
             this.mapView.CoordinateDisplayFormat = this.appSettings.CoordinateDisplayFormat;
+            this.mapView.UseEntityClustering = this.appSettings.UseMapEntityClustering;
 
             App.ShowToast("Settings were saved.");
-        }
-
-        /// <summary>
-        /// Reloads location list from data service
-        /// </summary>
-        /// <returns>task to wait on</returns>
-        private async Task ReloadLocationListAsync()
-        {
-            var dataService = DependencyService.Get<IDataService>();
-
-            var newLocationList = await dataService.GetLocationListAsync(CancellationToken.None);
-
-            if (this.updateLocationsList ||
-                this.locationList.Count != newLocationList.Count ||
-                !Enumerable.SequenceEqual(this.locationList, newLocationList, new LocationEqualityComparer()))
-            {
-                this.locationList = newLocationList;
-
-                this.mapView.ClearLocationList();
-                this.mapView.AddLocationList(this.locationList);
-
-                this.updateLocationsList = false;
-            }
-        }
-
-        /// <summary>
-        /// Reloads track list from data service
-        /// </summary>
-        /// <returns>task to wait on</returns>
-        private async Task ReloadTrackListAsync()
-        {
-            var dataService = DependencyService.Get<IDataService>();
-
-            var newTrackList = await dataService.GetTrackListAsync(CancellationToken.None);
-
-            if (this.updateTrackList ||
-                this.trackList.Count != newTrackList.Count ||
-                !Enumerable.SequenceEqual(this.trackList, newTrackList, new TrackEqualityComparer()))
-            {
-                this.AddAndRemoveDisplayedTracks(newTrackList);
-
-                this.trackList = newTrackList;
-
-                this.updateTrackList = false;
-            }
-        }
-
-        /// <summary>
-        /// Adds new and removes old tracks from map view
-        /// </summary>
-        /// <param name="newTrackList">new track list</param>
-        private void AddAndRemoveDisplayedTracks(List<Track> newTrackList)
-        {
-            var tracksToRemove = new HashSet<Track>();
-            foreach (var oldTrack in this.displayedTracks)
-            {
-                if (!newTrackList.Contains(oldTrack))
-                {
-                    tracksToRemove.Add(oldTrack);
-                }
-            }
-
-            foreach (var trackToRemove in tracksToRemove)
-            {
-                this.mapView.RemoveTrack(trackToRemove);
-                this.displayedTracks.Remove(trackToRemove);
-            }
-
-            foreach (var newTrack in newTrackList)
-            {
-                if (!this.displayedTracks.Contains(newTrack))
-                {
-                    this.mapView.AddTrack(newTrack);
-                    this.displayedTracks.Add(newTrack);
-                }
-            }
         }
 
         /// <summary>
@@ -1079,16 +800,10 @@ namespace WhereToFly.App.Core.Views
         /// </summary>
         protected override void OnDisappearing()
         {
-            this.pageIsVisible = false;
-
             base.OnDisappearing();
 
-            this.geolocator.PositionChanged -= this.OnPositionChanged;
-
-            Task.Run(async () =>
-            {
-                await this.geolocator.StopListeningAsync();
-            });
+            this.geolocationService.PositionChanged -= this.OnPositionChanged;
+            Xamarin.Essentials.Connectivity.ConnectivityChanged -= this.OnConnectivityChanged;
         }
         #endregion
 
@@ -1097,47 +812,27 @@ namespace WhereToFly.App.Core.Views
         /// </summary>
         /// <param name="sender">sender object</param>
         /// <param name="args">event args, including position</param>
-        private void OnPositionChanged(object sender, Plugin.Geolocator.Abstractions.PositionEventArgs args)
+        private void OnPositionChanged(object sender, GeolocationEventArgs args)
         {
-            var position = args.Position;
+            MapPoint point = args.Point;
 
             bool zoomToPosition = this.zoomToMyPosition;
 
             this.zoomToMyPosition = false;
 
-            var point = new MapPoint(position.Latitude, position.Longitude, position.Altitude);
-
             if (this.mapView != null)
             {
                 this.mapView.UpdateMyLocation(
                     point,
-                    (int)position.Accuracy,
-                    position.Speed * Geo.Spatial.Constants.FactorMeterPerSecondToKilometerPerHour,
-                    position.Timestamp,
+                    (int)args.Position.Accuracy,
+                    (args.Position.Speed ?? 0.0) * Geo.Constants.FactorMeterPerSecondToKilometerPerHour,
+                    args.Position.Timestamp,
                     zoomToPosition);
             }
 
-            Task.Run(async () => await this.UpdateLastShownPositionAsync(point));
-        }
-
-        /// <summary>
-        /// Updates last shown position in data service
-        /// </summary>
-        /// <param name="point">position to store</param>
-        /// <returns>task to wait on</returns>
-        private async Task UpdateLastShownPositionAsync(MapPoint point)
-        {
-            if (this.appSettings == null)
+            if (zoomToPosition)
             {
-                return; // appSettings not loaded yet
-            }
-
-            if (point.Valid)
-            {
-                this.appSettings.LastShownPosition = point;
-
-                var dataService = DependencyService.Get<IDataService>();
-                await dataService.StoreAppSettingsAsync(this.appSettings);
+                Task.Run(async () => await App.UpdateLastShownPositionAsync(point));
             }
         }
     }

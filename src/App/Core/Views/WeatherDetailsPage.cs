@@ -1,5 +1,8 @@
 ﻿using System.Threading.Tasks;
-using WhereToFly.App.Model;
+using WhereToFly.App.Core.Controls;
+using WhereToFly.App.Core.Models;
+using WhereToFly.App.Core.Services;
+using Xamarin.Essentials;
 using Xamarin.Forms;
 
 namespace WhereToFly.App.Core.Views
@@ -34,20 +37,21 @@ namespace WhereToFly.App.Core.Views
 
             var urlSource = new UrlWebViewSource
             {
-                Url = iconDescription.WebLink
+                Url = iconDescription.WebLink,
             };
 
             if (this.Content == null)
             {
-                var webView = new WebView
+                var webView = new WeatherWebView
                 {
                     Source = urlSource,
 
                     VerticalOptions = LayoutOptions.FillAndExpand,
-                    HorizontalOptions = LayoutOptions.FillAndExpand
+                    HorizontalOptions = LayoutOptions.FillAndExpand,
                 };
 
                 webView.AutomationId = "WeatherDetailsWebView";
+                webView.Navigated += async (sender, args) => await this.OnNavigated_WebView(sender, args);
 
                 this.Content = webView;
             }
@@ -56,6 +60,59 @@ namespace WhereToFly.App.Core.Views
                 var webView = this.Content as WebView;
                 webView.Source = urlSource;
             }
+        }
+
+        /// <summary>
+        /// Called when navigation to current page has finished
+        /// </summary>
+        /// <param name="sender">sender object</param>
+        /// <param name="args">event args</param>
+        /// <returns>task to wait on</returns>
+        private async Task OnNavigated_WebView(object sender, WebNavigatedEventArgs args)
+        {
+            if (sender is WebView webView &&
+                (args.Url.Contains("https://www.austrocontrol.at/flugwetter/start.php") ||
+                args.Url.Contains("https://www.austrocontrol.at/flugwetter/timeout.php")))
+            {
+                await PasteAlpthermUsernamePassword(webView);
+            }
+        }
+
+        /// <summary>
+        /// Inserts alptherm username and password on the current web view.
+        /// </summary>
+        /// <param name="webView">web view to use</param>
+        /// <returns>task to wait on</returns>
+        private static async Task PasteAlpthermUsernamePassword(WebView webView)
+        {
+            string username = await SecureStorage.GetAsync(Constants.SecureSettingsAlpthermUsername);
+            string password = await SecureStorage.GetAsync(Constants.SecureSettingsAlpthermPassword);
+
+            if (string.IsNullOrEmpty(username) &&
+                string.IsNullOrEmpty(password))
+            {
+                return;
+            }
+
+            string js = $"javascript:";
+
+            if (!string.IsNullOrEmpty(username))
+            {
+                js += $"document.getElementById('username').value = '{username}';";
+            }
+
+            if (!string.IsNullOrEmpty(password))
+            {
+                js += $"document.getElementById('password').value = '{password}';";
+            }
+
+            if (!string.IsNullOrEmpty(username) &&
+                !string.IsNullOrEmpty(password))
+            {
+                js += "document.getElementById('username').form.submit();";
+            }
+
+            await webView.EvaluateJavaScriptAsync(js);
         }
 
         /// <summary>
@@ -69,7 +126,7 @@ namespace WhereToFly.App.Core.Views
                 () => this.OnClicked_ToolbarButtonRefresh(),
                 ToolbarItemOrder.Primary)
             {
-                AutomationId = "Refresh"
+                AutomationId = "Refresh",
             };
 
             this.ToolbarItems.Add(refreshButton);
@@ -96,7 +153,7 @@ namespace WhereToFly.App.Core.Views
                 async () => await this.OnClicked_ToolbarButtonWeatherForecast(),
                 ToolbarItemOrder.Primary)
             {
-                AutomationId = "Forecast"
+                AutomationId = "Forecast",
             };
 
             this.ToolbarItems.Add(forecastButton);
@@ -122,7 +179,7 @@ namespace WhereToFly.App.Core.Views
                 async () => await this.OnClicked_ToolbarButtonCurrentWeather(),
                 ToolbarItemOrder.Primary)
             {
-                AutomationId = "Weather"
+                AutomationId = "Weather",
             };
 
             this.ToolbarItems.Add(weatherButton);
@@ -148,7 +205,7 @@ namespace WhereToFly.App.Core.Views
                 async () => await this.OnClicked_ToolbarButtonWebcams(),
                 ToolbarItemOrder.Primary)
             {
-                AutomationId = "Webcams"
+                AutomationId = "Webcams",
             };
 
             this.ToolbarItems.Add(webcamsButton);
@@ -171,12 +228,33 @@ namespace WhereToFly.App.Core.Views
         /// <returns>task to wait on</returns>
         private async Task SelectAndOpenWeatherPageAsync(string group)
         {
-            var description = await SelectWeatherIconPopupPage.ShowAsync(group);
+            var weatherIcon =
+                await NavigationService.Instance.NavigateToPopupPageAsync<WeatherIconDescription>(
+                    PopupPageKey.SelectWeatherIconPopupPage,
+                    animated: true,
+                    group);
 
-            if (description != null)
+            if (weatherIcon != null)
             {
-                this.OpenWebLink(description);
+                this.OpenWebLink(weatherIcon);
             }
+        }
+
+        /// <summary>
+        /// Called when the hardware back button is pressed; navigates back in browser, if
+        /// possible, or lets Forms handle the navigation.
+        /// </summary>
+        /// <returns>true when the back button press was handled, false when not</returns>
+        protected override bool OnBackButtonPressed()
+        {
+            if (this.Content is WebView webView &&
+                webView.CanGoBack)
+            {
+                webView.GoBack();
+                return true;
+            }
+
+            return base.OnBackButtonPressed();
         }
     }
 }
